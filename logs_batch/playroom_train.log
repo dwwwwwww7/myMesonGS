@@ -1,0 +1,137 @@
+args.test_iterations [0]
+Optimizing E:/3dgs data/MesonGS/output/playroom_config3
+hyper_config config3 [29/11 18:19:52]
+debug False [29/11 18:19:52]
+Output folder: E:/3dgs data/MesonGS/output/playroom_config3 [29/11 18:19:52]
+Reading camera 1/225Reading camera 2/225Reading camera 3/225Reading camera 4/225Reading camera 5/225Reading camera 6/225Reading camera 7/225Reading camera 8/225Reading camera 9/225Reading camera 10/225Reading camera 11/225Reading camera 12/225Reading camera 13/225Reading camera 14/225Reading camera 15/225Reading camera 16/225Reading camera 17/225Reading camera 18/225Reading camera 19/225Reading camera 20/225Reading camera 21/225Reading camera 22/225Reading camera 23/225Reading camera 24/225Reading camera 25/225Reading camera 26/225Reading camera 27/225Reading camera 28/225Reading camera 29/225Reading camera 30/225Reading camera 31/225Reading camera 32/225Reading camera 33/225Reading camera 34/225Reading camera 35/225Reading camera 36/225Reading camera 37/225Reading camera 38/225Reading camera 39/225Reading camera 40/225Reading camera 41/225Reading camera 42/225Reading camera 43/225Reading camera 44/225Reading camera 45/225Reading camera 46/225Reading camera 47/225Reading camera 48/225Reading camera 49/225Reading camera 50/225Reading camera 51/225Reading camera 52/225Reading camera 53/225Reading camera 54/225Reading camera 55/225Reading camera 56/225Reading camera 57/225Reading camera 58/225Reading camera 59/225Reading camera 60/225Reading camera 61/225Reading camera 62/225Reading camera 63/225Reading camera 64/225Reading camera 65/225Reading camera 66/225Reading camera 67/225Reading camera 68/225Reading camera 69/225Reading camera 70/225Reading camera 71/225Reading camera 72/225Reading camera 73/225Reading camera 74/225Reading camera 75/225Reading camera 76/225Reading camera 77/225Reading camera 78/225Reading camera 79/225Reading camera 80/225Reading camera 81/225Reading camera 82/225Reading camera 83/225Reading camera 84/225Reading camera 85/225Reading camera 86/225Reading camera 87/225Reading camera 88/225Reading camera 89/225Reading camera 90/225Reading camera 91/225Reading camera 92/225Reading camera 93/225Reading camera 94/225Reading camera 95/225Reading camera 96/225Reading camera 97/225Reading camera 98/225Reading camera 99/225Reading camera 100/225Reading camera 101/225Reading camera 102/225Reading camera 103/225Reading camera 104/225Reading camera 105/225Reading camera 106/225Reading camera 107/225Reading camera 108/225Reading camera 109/225Reading camera 110/225Reading camera 111/225Reading camera 112/225Reading camera 113/225Reading camera 114/225Reading camera 115/225Reading camera 116/225Reading camera 117/225Reading camera 118/225Reading camera 119/225Reading camera 120/225Reading camera 121/225Reading camera 122/225Reading camera 123/225Reading camera 124/225Reading camera 125/225Reading camera 126/225Reading camera 127/225Reading camera 128/225Reading camera 129/225Reading camera 130/225Reading camera 131/225Reading camera 132/225Reading camera 133/225Reading camera 134/225Reading camera 135/225Reading camera 136/225Reading camera 137/225Reading camera 138/225Reading camera 139/225Reading camera 140/225Reading camera 141/225Reading camera 142/225Reading camera 143/225Reading camera 144/225Reading camera 145/225Reading camera 146/225Reading camera 147/225Reading camera 148/225Reading camera 149/225Reading camera 150/225Reading camera 151/225Reading camera 152/225Reading camera 153/225Reading camera 154/225Reading camera 155/225Reading camera 156/225Reading camera 157/225Reading camera 158/225Reading camera 159/225Reading camera 160/225Reading camera 161/225Reading camera 162/225Reading camera 163/225Reading camera 164/225Reading camera 165/225Reading camera 166/225Reading camera 167/225Reading camera 168/225Reading camera 169/225Reading camera 170/225Reading camera 171/225Reading camera 172/225Reading camera 173/225Reading camera 174/225Reading camera 175/225Reading camera 176/225Reading camera 177/225Reading camera 178/225Reading camera 179/225Reading camera 180/225Reading camera 181/225Reading camera 182/225Reading camera 183/225Reading camera 184/225Reading camera 185/225Reading camera 186/225Reading camera 187/225Reading camera 188/225Reading camera 189/225Reading camera 190/225Reading camera 191/225Reading camera 192/225Reading camera 193/225Reading camera 194/225Reading camera 195/225Reading camera 196/225Reading camera 197/225Reading camera 198/225Reading camera 199/225Reading camera 200/225Reading camera 201/225Reading camera 202/225Reading camera 203/225Reading camera 204/225Reading camera 205/225Reading camera 206/225Reading camera 207/225Reading camera 208/225Reading camera 209/225Reading camera 210/225Reading camera 211/225Reading camera 212/225Reading camera 213/225Reading camera 214/225Reading camera 215/225Reading camera 216/225Reading camera 217/225Reading camera 218/225Reading camera 219/225Reading camera 220/225Reading camera 221/225Reading camera 222/225Reading camera 223/225Reading camera 224/225Reading camera 225/225 [29/11 18:19:52]
+Loading Training Cameras 196 [29/11 18:19:52]
+Loading Test Cameras 29 [29/11 18:19:59]
+now I am loading ply, spatial_lr_scale is 8.385717 [29/11 18:20:01]
+xyz.shape (2546116, 3) [29/11 18:20:03]
+opacities save shape (2546116, 1) [29/11 18:20:03]
+Load ply from E:/3dgs data/models/playroom/point_cloud/iteration_30000/point_cloud.ply [29/11 18:20:06]
+training setup: finetune [29/11 18:20:06]
+
+====================================================================== [29/11 18:20:06]
+【步骤1】计算高斯点重要性 [29/11 18:20:06]
+====================================================================== [29/11 18:20:06]
+原始高斯点数量: 2,546,116 [29/11 18:20:06]
+Rendering progress:   0%|          | 0/196 [00:00<?, ?it/s]Rendering progress:   1%|          | 1/196 [00:00<01:09,  2.81it/s]Rendering progress:   2%|▏         | 3/196 [00:00<00:27,  7.03it/s]Rendering progress:   3%|▎         | 5/196 [00:00<00:20,  9.42it/s]Rendering progress:   4%|▎         | 7/196 [00:00<00:16, 11.27it/s]Rendering progress:   5%|▍         | 9/196 [00:00<00:15, 12.45it/s]Rendering progress:   6%|▌         | 11/196 [00:01<00:14, 12.85it/s]Rendering progress:   7%|▋         | 13/196 [00:01<00:13, 13.44it/s]Rendering progress:   8%|▊         | 15/196 [00:01<00:13, 13.81it/s]Rendering progress:   9%|▊         | 17/196 [00:01<00:12, 14.10it/s]Rendering progress:  10%|▉         | 19/196 [00:01<00:12, 14.29it/s]Rendering progress:  11%|█         | 21/196 [00:01<00:12, 14.40it/s]Rendering progress:  12%|█▏        | 23/196 [00:01<00:11, 14.57it/s]Rendering progress:  13%|█▎        | 25/196 [00:01<00:11, 14.56it/s]Rendering progress:  14%|█▍        | 27/196 [00:02<00:11, 14.57it/s]Rendering progress:  15%|█▍        | 29/196 [00:02<00:11, 14.77it/s]Rendering progress:  16%|█▌        | 31/196 [00:02<00:11, 14.66it/s]Rendering progress:  17%|█▋        | 33/196 [00:02<00:11, 14.63it/s]Rendering progress:  18%|█▊        | 35/196 [00:02<00:11, 14.62it/s]Rendering progress:  19%|█▉        | 37/196 [00:02<00:10, 14.54it/s]Rendering progress:  20%|█▉        | 39/196 [00:02<00:10, 14.64it/s]Rendering progress:  21%|██        | 41/196 [00:03<00:10, 14.63it/s]Rendering progress:  22%|██▏       | 43/196 [00:03<00:10, 14.59it/s]Rendering progress:  23%|██▎       | 45/196 [00:03<00:10, 14.75it/s]Rendering progress:  24%|██▍       | 47/196 [00:03<00:10, 14.77it/s]Rendering progress:  25%|██▌       | 49/196 [00:03<00:10, 14.52it/s]Rendering progress:  26%|██▌       | 51/196 [00:03<00:09, 14.55it/s]Rendering progress:  27%|██▋       | 53/196 [00:03<00:09, 14.50it/s]Rendering progress:  28%|██▊       | 55/196 [00:04<00:09, 14.67it/s]Rendering progress:  29%|██▉       | 57/196 [00:04<00:09, 14.57it/s]Rendering progress:  30%|███       | 59/196 [00:04<00:09, 14.73it/s]Rendering progress:  31%|███       | 61/196 [00:04<00:09, 14.77it/s]Rendering progress:  32%|███▏      | 63/196 [00:04<00:09, 14.64it/s]Rendering progress:  33%|███▎      | 65/196 [00:04<00:09, 14.50it/s]Rendering progress:  34%|███▍      | 67/196 [00:04<00:08, 14.48it/s]Rendering progress:  35%|███▌      | 69/196 [00:05<00:08, 14.53it/s]Rendering progress:  36%|███▌      | 71/196 [00:05<00:08, 14.51it/s]Rendering progress:  37%|███▋      | 73/196 [00:05<00:08, 14.57it/s]Rendering progress:  38%|███▊      | 75/196 [00:05<00:08, 14.57it/s]Rendering progress:  39%|███▉      | 77/196 [00:05<00:08, 14.63it/s]Rendering progress:  40%|████      | 79/196 [00:05<00:07, 14.76it/s]Rendering progress:  41%|████▏     | 81/196 [00:05<00:07, 14.79it/s]Rendering progress:  42%|████▏     | 83/196 [00:05<00:07, 14.81it/s]Rendering progress:  43%|████▎     | 85/196 [00:06<00:07, 14.85it/s]Rendering progress:  44%|████▍     | 87/196 [00:06<00:07, 14.77it/s]Rendering progress:  45%|████▌     | 89/196 [00:06<00:07, 14.65it/s]Rendering progress:  46%|████▋     | 91/196 [00:06<00:07, 14.69it/s]Rendering progress:  47%|████▋     | 93/196 [00:06<00:07, 14.64it/s]Rendering progress:  48%|████▊     | 95/196 [00:06<00:06, 14.44it/s]Rendering progress:  49%|████▉     | 97/196 [00:06<00:06, 14.55it/s]Rendering progress:  51%|█████     | 99/196 [00:07<00:06, 14.54it/s]Rendering progress:  52%|█████▏    | 101/196 [00:07<00:06, 14.49it/s]Rendering progress:  53%|█████▎    | 103/196 [00:07<00:06, 14.45it/s]Rendering progress:  54%|█████▎    | 105/196 [00:07<00:06, 14.52it/s]Rendering progress:  55%|█████▍    | 107/196 [00:07<00:06, 14.68it/s]Rendering progress:  56%|█████▌    | 109/196 [00:07<00:05, 14.70it/s]Rendering progress:  57%|█████▋    | 111/196 [00:07<00:05, 14.59it/s]Rendering progress:  58%|█████▊    | 113/196 [00:08<00:05, 14.29it/s]Rendering progress:  59%|█████▊    | 115/196 [00:08<00:05, 14.42it/s]Rendering progress:  60%|█████▉    | 117/196 [00:08<00:05, 14.56it/s]Rendering progress:  61%|██████    | 119/196 [00:08<00:05, 14.48it/s]Rendering progress:  62%|██████▏   | 121/196 [00:08<00:05, 14.53it/s]Rendering progress:  63%|██████▎   | 123/196 [00:08<00:04, 14.71it/s]Rendering progress:  64%|██████▍   | 125/196 [00:08<00:04, 14.68it/s]Rendering progress:  65%|██████▍   | 127/196 [00:08<00:04, 14.70it/s]Rendering progress:  66%|██████▌   | 129/196 [00:09<00:04, 14.73it/s]Rendering progress:  67%|██████▋   | 131/196 [00:09<00:04, 14.94it/s]Rendering progress:  68%|██████▊   | 133/196 [00:09<00:04, 14.86it/s]Rendering progress:  69%|██████▉   | 135/196 [00:09<00:04, 14.38it/s]Rendering progress:  70%|██████▉   | 137/196 [00:09<00:04, 14.46it/s]Rendering progress:  71%|███████   | 139/196 [00:09<00:03, 14.60it/s]Rendering progress:  72%|███████▏  | 141/196 [00:09<00:03, 14.69it/s]Rendering progress:  73%|███████▎  | 143/196 [00:10<00:03, 14.73it/s]Rendering progress:  74%|███████▍  | 145/196 [00:10<00:03, 14.72it/s]Rendering progress:  75%|███████▌  | 147/196 [00:10<00:03, 14.67it/s]Rendering progress:  76%|███████▌  | 149/196 [00:10<00:03, 14.61it/s]Rendering progress:  77%|███████▋  | 151/196 [00:10<00:03, 14.60it/s]Rendering progress:  78%|███████▊  | 153/196 [00:10<00:02, 14.61it/s]Rendering progress:  79%|███████▉  | 155/196 [00:10<00:02, 14.59it/s]Rendering progress:  80%|████████  | 157/196 [00:11<00:02, 14.66it/s]Rendering progress:  81%|████████  | 159/196 [00:11<00:02, 14.77it/s]Rendering progress:  82%|████████▏ | 161/196 [00:11<00:02, 14.84it/s]Rendering progress:  83%|████████▎ | 163/196 [00:11<00:02, 14.69it/s]Rendering progress:  84%|████████▍ | 165/196 [00:11<00:02, 14.56it/s]Rendering progress:  85%|████████▌ | 167/196 [00:11<00:01, 14.67it/s]Rendering progress:  86%|████████▌ | 169/196 [00:11<00:01, 14.73it/s]Rendering progress:  87%|████████▋ | 171/196 [00:11<00:01, 14.48it/s]Rendering progress:  88%|████████▊ | 173/196 [00:12<00:01, 14.62it/s]Rendering progress:  89%|████████▉ | 175/196 [00:12<00:01, 14.61it/s]Rendering progress:  90%|█████████ | 177/196 [00:12<00:01, 14.76it/s]Rendering progress:  91%|█████████▏| 179/196 [00:12<00:01, 14.64it/s]Rendering progress:  92%|█████████▏| 181/196 [00:12<00:01, 14.74it/s]Rendering progress:  93%|█████████▎| 183/196 [00:12<00:00, 14.70it/s]Rendering progress:  94%|█████████▍| 185/196 [00:12<00:00, 14.77it/s]Rendering progress:  95%|█████████▌| 187/196 [00:13<00:00, 14.83it/s]Rendering progress:  96%|█████████▋| 189/196 [00:13<00:00, 14.74it/s]Rendering progress:  97%|█████████▋| 191/196 [00:13<00:00, 14.75it/s]Rendering progress:  98%|█████████▊| 193/196 [00:13<00:00, 14.78it/s]Rendering progress:  99%|█████████▉| 195/196 [00:13<00:00, 14.95it/s]Rendering progress: 100%|██████████| 196/196 [00:13<00:00, 14.35it/s]
+重要性分数范围: [0.000000, 14476.043945] [29/11 18:20:20]
+重要性分数均值: 4.595107 [29/11 18:20:20]
+
+====================================================================== [29/11 18:20:20]
+【步骤2】剪枝不重要的高斯点 [29/11 18:20:20]
+====================================================================== [29/11 18:20:20]
+剪枝阈值: 20.0% [29/11 18:20:20]
+将要剪枝的点数: 509,224 (20.00%) [29/11 18:20:20]
+剪枝后剩余点数: 2,036,892 (80.00%) [29/11 18:20:20]
+实际剪枝数量: 509,224 [29/11 18:20:20]
+
+====================================================================== [29/11 18:20:20]
+【步骤3】八叉树编码 + RAHT准备 [29/11 18:20:20]
+====================================================================== [29/11 18:20:20]
+八叉树深度: 20 [29/11 18:20:20]
+RAHT变换: 启用 [29/11 18:20:20]
+Debug: V shape = (2036892, 3), depth = 20 [29/11 18:22:09]
+Debug: V dtype = int64 [29/11 18:22:09]
+Debug: N = 2036892, NN = 2036892, N_T = 4073784 [29/11 18:22:09]
+Debug: 数组大小 = 2036892 [29/11 18:22:09]
+Morton编码完成，点云已排序 [29/11 18:24:23]
+
+====================================================================== [29/11 18:24:23]
+【步骤4】初始化量化器 [29/11 18:24:23]
+====================================================================== [29/11 18:24:23]
+分块量化模式: 启用 [29/11 18:24:23]
+块数量 (n_block): 57 [29/11 18:24:23]
+RAHT特征维度: 55 (opacity(1) + euler(3) + f_dc(3) + f_rest(45) + scale(3)) [29/11 18:24:23]
+====================================================================== [29/11 18:24:24]
+初始化量化器（多位数配置） [29/11 18:24:24]
+====================================================================== [29/11 18:24:24]
+块数量: 57 [29/11 18:24:24]
+总量化器数量: 3135 (55维 × 57块) [29/11 18:24:24]
+ [29/11 18:24:24]
+量化位数配置: [29/11 18:24:24]
+  opacity (1维):      8-bit [29/11 18:24:24]
+  euler (3维):        8-bit [29/11 18:24:24]
+  f_dc (3维):         8-bit [29/11 18:24:24]
+  f_rest_0 (15维):    4-bit  [SH degree 1] [29/11 18:24:24]
+  f_rest_1 (15维):    4-bit  [SH degree 2] [29/11 18:24:24]
+  f_rest_2 (15维):    2-bit  [SH degree 3] [29/11 18:24:24]
+  scale (3维):        10-bit [29/11 18:24:24]
+====================================================================== [29/11 18:24:24]
+
+====================================================================== [29/11 18:24:24]
+【步骤5】VQ训练（已跳过） [29/11 18:24:24]
+====================================================================== [29/11 18:24:24]
+Skipping VQ - f_rest will use RAHT transform like f_dc [29/11 18:24:24]
+f_rest 将使用 RAHT 变换，无需 VQ 码本 [29/11 18:24:24]
+
+====================================================================== [29/11 18:24:24]
+【步骤6】初始评估（Iteration 0） [29/11 18:24:24]
+====================================================================== [29/11 18:24:24]
+开始测试集渲染... [29/11 18:24:24]
+  0%|          | 0/29 [00:00<?, ?it/s]  3%|▎         | 1/29 [00:17<08:09, 17.47s/it]  7%|▋         | 2/29 [00:27<05:56, 13.19s/it] 10%|█         | 3/29 [00:41<05:52, 13.55s/it] 14%|█▍        | 4/29 [00:56<05:50, 14.01s/it] 17%|█▋        | 5/29 [01:10<05:37, 14.07s/it] 21%|██        | 6/29 [01:24<05:19, 13.88s/it] 24%|██▍       | 7/29 [01:39<05:13, 14.25s/it] 28%|██▊       | 8/29 [01:52<04:56, 14.10s/it] 31%|███       | 9/29 [02:06<04:41, 14.05s/it] 34%|███▍      | 10/29 [02:20<04:27, 14.07s/it] 38%|███▊      | 11/29 [02:34<04:08, 13.83s/it] 41%|████▏     | 12/29 [02:48<03:59, 14.11s/it] 45%|████▍     | 13/29 [03:02<03:44, 14.06s/it] 48%|████▊     | 14/29 [03:16<03:30, 14.03s/it] 52%|█████▏    | 15/29 [03:31<03:17, 14.09s/it] 55%|█████▌    | 16/29 [03:44<03:00, 13.89s/it] 59%|█████▊    | 17/29 [03:59<02:49, 14.15s/it] 62%|██████▏   | 18/29 [04:13<02:36, 14.20s/it] 66%|██████▌   | 19/29 [04:27<02:21, 14.19s/it] 69%|██████▉   | 20/29 [04:41<02:06, 14.05s/it] 72%|███████▏  | 21/29 [04:54<01:51, 13.88s/it] 76%|███████▌  | 22/29 [05:09<01:39, 14.23s/it] 79%|███████▉  | 23/29 [05:23<01:24, 14.11s/it] 83%|████████▎ | 24/29 [05:37<01:10, 14.10s/it] 86%|████████▌ | 25/29 [05:51<00:56, 14.04s/it] 90%|████████▉ | 26/29 [06:05<00:41, 13.89s/it] 93%|█████████▎| 27/29 [06:20<00:28, 14.33s/it] 97%|█████████▋| 28/29 [06:34<00:14, 14.26s/it]100%|██████████| 29/29 [06:48<00:00, 14.23s/it]100%|██████████| 29/29 [06:48<00:00, 14.10s/it]
+
+保存压缩文件... [29/11 18:31:17]
+save_npz gaussians: E:/3dgs data/MesonGS/output/playroom_config3\point_cloud/iteration_0 [29/11 18:31:17]
+
+【保存压缩文件】 [29/11 18:31:17]
+  保存八叉树结构... [29/11 18:31:17]
+    oct.npz: 2036892 个点 [29/11 18:31:18]
+  跳过 VQ 文件（ntk.npz, um.npz） [29/11 18:31:18]
+
+  构建 RAHT 输入特征... [29/11 18:31:18]
+    rf 形状: torch.Size([2036892, 55]) (55维) [29/11 18:31:18]
+    包含: opacity(1) + euler(3) + f_dc(3) + f_rest(45) + scale(3) [29/11 18:31:18]
+
+  执行 RAHT 正向变换... [29/11 18:31:18]
+    RAHT 变换完成，C 形状: torch.Size([2036892, 55]) [29/11 18:31:18]
+
+  执行分块量化... [29/11 18:31:18]
+    分块量化模式 [29/11 18:31:18]
+    块数量: 57 [29/11 18:31:18]
+    量化 55 维 RAHT 特征 (包含 scale)... [29/11 18:31:18]
+    所有特征量化完成，使用了 3135 个量化器 (55 × 57) [29/11 18:31:19]
+    量化位数分布: {8, 2, 10, 4} bits [29/11 18:31:19]
+
+  保存 RAHT 系数 (包含 scale)... [29/11 18:31:20]
+    使用 uint16 存储（最大 10-bit） [29/11 18:31:20]
+    orgb.npz: 形状 (112029005,), 大小 437613.30 KB [29/11 18:31:33]
+    包含所有 55 维特征 (opacity + euler + f_dc + f_rest + scale) [29/11 18:31:33]
+
+  跳过独立的 Scale 文件 (ct.npz) - Scale 已包含在 RAHT 特征中 [29/11 18:31:33]
+
+  保存量化参数... [29/11 18:31:33]
+    t.npz: 6327 个参数 [29/11 18:31:33]
+
+  打包成 ZIP 文件... [29/11 18:31:33]
+
+【压缩完成】 [29/11 18:31:35]
+  文件大小: 33,791,655 B [29/11 18:31:35]
+  文件大小: 32999.66 KB [29/11 18:31:35]
+  文件大小: 32.23 MB [29/11 18:31:35]
+
+---------------------------------------------------------------------- [29/11 18:31:35]
+【初始评估结果】 [29/11 18:31:35]
+---------------------------------------------------------------------- [29/11 18:31:35]
+PSNR:  28.7311 dB [29/11 18:31:35]
+SSIM:  0.8856 [29/11 18:31:35]
+LPIPS: 0.2755 [29/11 18:31:35]
+文件大小: 32.23 MB [29/11 18:31:35]
+---------------------------------------------------------------------- [29/11 18:31:35]
+
+====================================================================== [29/11 18:31:35]
+【步骤7】微调训练 [29/11 18:31:35]
+====================================================================== [29/11 18:31:35]
+总迭代次数: 0 [29/11 18:31:35]
+学习率缩放: 0.4 [29/11 18:31:35]
+测试迭代: [0] [29/11 18:31:35]
+稀疏性损失权重 (λ_s): 5e-07 [29/11 18:31:35]
+  启用稀疏性正则化，促进RAHT系数稀疏化 [29/11 18:31:35]
+====================================================================== [29/11 18:31:35]
+ [29/11 18:31:35]
+finetuning setup: finetune [29/11 18:31:35]
+微调进度: 0it [00:00, ?it/s]微调进度: 0it [00:00, ?it/s]
+
+Training complete. [29/11 18:31:35]

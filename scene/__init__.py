@@ -34,17 +34,21 @@ class Scene:
         self.model_path = args.model_path
         self.loaded_iter = None
         self.gaussians = gaussians
-        self.codeft = args.codeft
+        self.codeft = getattr(args, 'codeft', False)  # 安全访问，默认为 False
         
         
         if given_ply_path == '' or given_ply_path == None:
-            if load_iteration:
-                if load_iteration == -1 :
+            if load_iteration is not None:  # 修复: 使用 is not None 而不是 truthy 检查，因为 0 也是有效的迭代号
+                if load_iteration == -1:
                     self.loaded_iter = searchForMaxIteration(os.path.join(self.model_path, "point_cloud"))
                 else:
                     self.loaded_iter = load_iteration
                 print("Loading trained model at iteration {}".format(self.loaded_iter))
-                given_ply_path = os.path.join(self.model_path, "point_cloud", "iteration_" + str(self.loaded_iter), "point_cloud.ply")
+                # 根据解码格式选择不同的路径
+                if dec_npz:
+                    given_ply_path = os.path.join(self.model_path, "point_cloud", "iteration_" + str(self.loaded_iter), "pc_npz")
+                else:
+                    given_ply_path = os.path.join(self.model_path, "point_cloud", "iteration_" + str(self.loaded_iter), "decompressed.ply")
         else:
             self.loaded_iter = -1
         

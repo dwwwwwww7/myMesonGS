@@ -11,7 +11,8 @@
 
 import os
 import time
-
+import zipfile
+import glob
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -32,11 +33,26 @@ from utils.system_utils import mkdir_p
 from vq import vq_features
 
 
+def create_zip_file(bin_dir, exp_dir):
+    """
+    Create a zip file from bin_dir contents using Python's zipfile module.
+    Cross-platform compatible (works on Windows, Linux, Mac).
+    """
+    bin_zip_path = os.path.join(exp_dir, 'bins.zip')
+    
+    with zipfile.ZipFile(bin_zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        for file in glob.glob(os.path.join(bin_dir, '*')):
+            if os.path.isfile(file):
+                zipf.write(file, os.path.basename(file))
+    
+    return bin_zip_path
+
+
 def solve_xy(z: int):
     '''
     output: x, y
     min abs(x-y)
-    s.t. 7x + 3y = z, x \in N, y \in N
+    s.t. 7x + 3y = z, x \\in N, y \\in N
     '''
     xs = np.arange(z//7).astype(np.int32)
     l1 = z - (xs * 7) 
@@ -335,7 +351,7 @@ def decode_oct(paramarr, oct, depth):
     zletra=d1halfing_fast(minz,maxz,depth)
     occodex=(oct/(2**(depth*2))).astype(int)
     occodey=((oct-occodex*(2**(depth*2)))/(2**depth)).astype(int)
-    occodez=(oct-occodex*(2**(depth*2))-occodey*(2**depth)).astype(int)  
+    occodez=(oct-occodex*(2**(depth*2))-occodey*(2**depth)).astype(int)
     V = np.array([occodex,occodey,occodez], dtype=int).T
     koorx=xletra[occodex]
     koory=yletra[occodey]
@@ -452,19 +468,14 @@ class GaussianModel:
     
     @property
     def get_indexed_feature_extra(self):
-        n_sh = (self.active_sh_degree + 1) ** 2
-        num_points = self.get_xyz.shape[0]
-        fi = self._feature_indices.detach().cpu()
-        fr = self._features_rest.detach().cpu()
-        ret = torch.zeros([num_points, 3 * (n_sh - 1)])
-        for i in range(num_points):
-            ret[i] = self._features_rest[int(fi[i])]
-        return ret.reshape(-1, n_sh - 1, 3)
-        # return torch.matmul(F.one_hot(self._feature_indices).float(), self._features_rest).reshape(-1, self.n_sh - 1, 3)
-
+        # No more VQ indexing - directly return features_rest
+        return self._features_rest
+    
     @property
     def get_feature_indices(self):
-        return self._feature_indices
+        # This property is no longer used since we removed VQ
+        # Return None to avoid errors if called
+        return None
     
     @property
     def get_opacity(self):
@@ -700,7 +711,8 @@ class GaussianModel:
         trans_array.append(self.depth)
         trans_array.append(self.lseg)
         
-        scale_offset = 7
+        # scale_offset changed from 7 to 52 (opacity(1) + euler(3) + f_dc(3) + f_rest(45))
+        scale_offset = 52
 
         with torch.no_grad():
             print('type(self.oct)', type(self.oct), max(self.oct))
@@ -793,10 +805,8 @@ class GaussianModel:
             # np.savez_compressed(os.path.join(bin_dir,'ct.npz'), i=scaling_q.astype(np.uint8))
             # np.savez_compressed(os.path.join(bin_dir, 't.npz'), t=trans_array)
 
-            bin_zip_name = bin_dir.split('/')[-1]
-            bin_zip_path = os.path.join(exp_dir, f'{bin_zip_name}.zip')
-            os.system(f'zip -j {bin_zip_path} {bin_dir}/*')
-
+            # Use cross-platform zip function
+            bin_zip_path = create_zip_file(bin_dir, exp_dir)
             zip_file_size = os.path.getsize(bin_zip_path)
 
             print('final sum:', zip_file_size , 'B')
@@ -811,34 +821,36 @@ class GaussianModel:
         trans_array = []
         trans_array.append(self.depth)
         trans_array.append(self.n_block)
-        
-        scale_offset = 7
 
         with torch.no_grad():
-            # print('type(self.oct)', type(self.oct), max(self.oct))
+            print("\n【保存压缩文件】")
+            print(f"  保存八叉树结构...")
             np.savez_compressed(os.path.join(bin_dir , 'oct'), points=self.oct, params=self.oct_param)
-            # print('self.oct.shape', self.oct.shape)
-            # print('self.oct.shape', self.oct.shape)
-            # ntk, 1-D
-            # cb: cb_size * 45
-            ntk = self._feature_indices.detach().contiguous().cpu().int().numpy()
-            cb = self._features_rest.detach().contiguous().cpu().numpy()
-            # print('cb.shape', cb.shape)
-            np.savez_compressed(os.path.join(bin_dir , 'ntk.npz'), ntk=ntk)
-            np.savez_compressed(os.path.join(bin_dir , 'um.npz'), umap=cb)
+            print(f"    oct.npz: {self.oct.shape[0]} 个点")
             
+            # No more VQ - f_rest will be handled by RAHT
+            print(f"  跳过 VQ 文件（ntk.npz, um.npz）")
+            
+            print(f"\n  构建 RAHT 输入特征...")
             r = self.get_ori_rotation
             norm = torch.sqrt(r[:,0]*r[:,0] + r[:,1]*r[:,1] + r[:,2]*r[:,2] + r[:,3]*r[:,3])
             q = r / norm[:, None]
             eulers = ToEulerAngles_FT(q)
             
-            rf = torch.concat([self.get_origin_opacity.detach(), eulers.detach(), self.get_features_dc.detach().contiguous().squeeze()], axis=-1)
+            # Include f_rest and scale in RAHT transform: 
+            # opacity(1) + euler(3) + f_dc(3) + f_rest(45) + scale(3) = 55 dims
+            rf = torch.concat([
+                self.get_origin_opacity.detach(), 
+                eulers.detach(), 
+                self.get_features_dc.detach().contiguous().squeeze(),
+                self.get_indexed_feature_extra.detach().contiguous().flatten(-2),  # f_rest (45 dims)
+                self.get_ori_scaling.detach()  # scale (3 dims)
+            ], axis=-1)
             
-            # '''ckpt'''
-            # rf_cpu = rf.cpu().numpy()
-            # np.save('duipai/rf_cpu.npy', rf_cpu)
-            # ''''''
+            print(f"    rf 形状: {rf.shape} (55维)")
+            print(f"    包含: opacity(1) + euler(3) + f_dc(3) + f_rest(45) + scale(3)")
             
+            print(f"\n  执行 RAHT 正向变换...")
             C = rf[self.reorder]
             iW1 = self.res['iW1']
             iW2 = self.res['iW2']
@@ -854,9 +866,12 @@ class GaussianModel:
                                                     w2, 
                                                     C[left_idx], 
                                                     C[right_idx])
+            
+            print(f"    RAHT 变换完成，C 形状: {C.shape}")
 
             cf = C[0].cpu().numpy()
 
+            print(f"\n  执行分块量化...")
             if per_channel_quant:
                 qci = []
                 dqci = []
@@ -881,17 +896,34 @@ class GaussianModel:
                 qci = np.concatenate(qci, axis=-1)
                 dqci = np.concatenate(dqci, axis=-1)
             elif per_block_quant:
-                # TODO: Shuzhao
                 qa_cnt = 0
                 lc1 = C.shape[0] - 1
                 qci = [] 
                 split = split_length(lc1, self.n_block)
+                
+                print(f"    分块量化模式")
+                print(f"    块数量: {self.n_block}")
+                print(f"    量化 55 维 RAHT 特征 (包含 scale)...")
+                
+                # 保存每个维度的量化位数信息
+                dim_bits = []
+                
                 for i in range(C.shape[-1]):
+                    # 获取当前维度的量化位数
+                    current_bit = self.qas[qa_cnt].bit
+                    dim_bits.append(current_bit)
+                    
                     t1, trans1 = torch_vanilla_quant_ave(C[1:, i], split, self.qas[qa_cnt : qa_cnt + self.n_block])
                     qci.append(t1)
-                    # .reshape(-1, 1)
                     trans_array.extend(trans1)
                     qa_cnt += self.n_block
+                
+                print(f"    所有特征量化完成，使用了 {qa_cnt} 个量化器 (55 × {self.n_block})")
+                print(f"    量化位数分布: {set(dim_bits)} bits")
+                
+                # 保存量化位数配置
+                trans_array.extend(dim_bits)  # 添加55个维度的bit信息
+                
                 qci = np.concatenate(qci, axis=-1)
             else:
                 qci = quantize_tensor(
@@ -903,68 +935,138 @@ class GaussianModel:
                 trans_array.append(self.qa.scale.item())
                 trans_array.append(self.qa.zero_point.item())
                 
-            np.savez_compressed(os.path.join(bin_dir,'orgb.npz'), f=cf, i=qci.astype(np.uint8))
+            print(f"\n  保存 RAHT 系数 (包含 scale)...")
             
-            if per_channel_quant:
-                scaling = self.get_ori_scaling.detach()
-                scaling_q = []
-                for i in range(scale_offset, scale_offset+3):
-                    scaling_q.append(
-                        torch.quantize_per_tensor(
-                            scaling[:, i-scale_offset],
-                            scale=self.qas[i].scale,
-                            zero_point=self.qas[i].zero_point,
-                            dtype=self.qas[i].dtype
-                            ).int_repr().cpu().numpy().reshape(-1, 1)
-                    )
-                    trans_array.append(self.qas[i].scale.item())
-                    trans_array.append(self.qas[i].zero_point.item())
-                scaling_q = np.concatenate(scaling_q, axis=-1)
-            elif per_block_quant:
-                scaling = self.get_ori_scaling.detach()
-                lc1 = scaling.shape[0]
-                scaling_q = []
-                split_scale = split_length(lc1, self.n_block)
-                for i in range(scaling.shape[-1]):
-                    t1, trans1 = torch_vanilla_quant_ave(scaling[:, i], split_scale, self.qas[qa_cnt : qa_cnt + self.n_block])
-                    scaling_q.append(t1)
-                    # .reshape(-1, 1)
-                    trans_array.extend(trans1)
-                    qa_cnt += self.n_block
-                scaling_q = np.concatenate(scaling_q, axis=-1)
+            # 根据最大位数选择数据类型
+            if per_block_quant and hasattr(self, 'dim_to_bit'):
+                max_bit = max(self.dim_to_bit)
             else:
-                scaling_q = torch.quantize_per_tensor(
-                    self.get_ori_scaling.detach(),
-                    scale=self.scale_qa.scale,
-                    zero_point=self.scale_qa.zero_point,
-                    dtype=self.scale_qa.dtype,
-                ).int_repr().cpu().numpy()
-                trans_array = np.concatenate([trans_array, self.scale_qa.scale.cpu().numpy().reshape(-1)])
-                trans_array = np.concatenate([trans_array, self.scale_qa.zero_point.cpu().numpy().reshape(-1)])
+                max_bit = 8
             
-
-            np.savez_compressed(os.path.join(bin_dir,'ct.npz'), i=scaling_q.astype(np.uint8))
+            if max_bit <= 8:
+                qci_dtype = np.uint8
+                print(f"    使用 uint8 存储（最大 {max_bit}-bit）")
+            elif max_bit <= 16:
+                qci_dtype = np.uint16
+                print(f"    使用 uint16 存储（最大 {max_bit}-bit）")
+            else:
+                qci_dtype = np.uint32
+                print(f"    使用 uint32 存储（最大 {max_bit}-bit）")
+            
+            np.savez_compressed(os.path.join(bin_dir,'orgb.npz'), f=cf, i=qci.astype(qci_dtype))
+            print(f"    orgb.npz: 形状 {qci.shape}, 大小 {qci.nbytes / 1024:.2f} KB")
+            print(f"    包含所有 55 维特征 (opacity + euler + f_dc + f_rest + scale)")
+            
+            # Scale is now included in RAHT features, no separate ct.npz needed
+            print(f"\n  跳过独立的 Scale 文件 (ct.npz) - Scale 已包含在 RAHT 特征中")
             
             trans_array = np.array(trans_array)
+            print(f"\n  保存量化参数...")
             np.savez_compressed(os.path.join(bin_dir, 't.npz'), t=trans_array)
+            print(f"    t.npz: {len(trans_array)} 个参数")
 
-            bin_zip_name = bin_dir.split('/')[-1]
-            bin_zip_path = os.path.join(exp_dir, f'{bin_zip_name}.zip')
-            os.system(f'zip -j {bin_zip_path} {bin_dir}/*')
-
+            print(f"\n  打包成 ZIP 文件...")
+            bin_zip_path = create_zip_file(bin_dir, exp_dir)
             zip_file_size = os.path.getsize(bin_zip_path)
 
-            print('final sum:', zip_file_size , 'B')
-            print('final sum:', zip_file_size / 1024, 'KB')
-            print('final sum:', zip_file_size / 1024 / 1024, 'MB')
+            print(f"\n【压缩完成】")
+            print(f"  文件大小: {zip_file_size:,} B")
+            print(f"  文件大小: {zip_file_size / 1024:.2f} KB")
+            print(f"  文件大小: {zip_file_size / 1024 / 1024:.2f} MB")
 
-    def init_qas(self, n_block):
+    def init_qas(self, n_block, bit_config=None):
+        """
+        初始化量化器，支持不同属性使用不同的量化位数
+        
+        Args:
+            n_block: 块数量
+            bit_config: 量化位数配置字典，格式：
+                {
+                    'opacity': 8,      # 1维
+                    'euler': 8,        # 3维
+                    'f_dc': 8,         # 3维
+                    'f_rest_0': 4,     # 15维 (sh_1: 0-14)
+                    'f_rest_1': 4,     # 15维 (sh_2: 15-29)
+                    'f_rest_2': 2,     # 15维 (sh_3: 30-44)
+                    'scale': 10        # 3维
+                }
+        """
         self.n_block = n_block
-        n_qs = 10 * n_block
+        
+        # 默认配置：所有属性8-bit
+        if bit_config is None:
+            bit_config = {
+                'opacity': 8,
+                'euler': 8,
+                'f_dc': 8,
+                'f_rest_0': 8,
+                'f_rest_1': 8,
+                'f_rest_2': 8,
+                'scale': 8
+            }
+        
+        self.bit_config = bit_config
+        
+        # 特征维度分配：
+        # 0: opacity (1)
+        # 1-3: euler (3)
+        # 4-6: f_dc (3)
+        # 7-21: f_rest_0 (15) - sh_1
+        # 22-36: f_rest_1 (15) - sh_2
+        # 37-51: f_rest_2 (15) - sh_3
+        # 52-54: scale (3)
+        
+        dim_to_bit = []
+        
+        # opacity (1维)
+        dim_to_bit.extend([bit_config['opacity']] * 1)
+        
+        # euler (3维)
+        dim_to_bit.extend([bit_config['euler']] * 3)
+        
+        # f_dc (3维)
+        dim_to_bit.extend([bit_config['f_dc']] * 3)
+        
+        # f_rest_0 (15维) - sh_1
+        dim_to_bit.extend([bit_config['f_rest_0']] * 15)
+        
+        # f_rest_1 (15维) - sh_2
+        dim_to_bit.extend([bit_config['f_rest_1']] * 15)
+        
+        # f_rest_2 (15维) - sh_3
+        dim_to_bit.extend([bit_config['f_rest_2']] * 15)
+        
+        # scale (3维)
+        dim_to_bit.extend([bit_config['scale']] * 3)
+        
+        assert len(dim_to_bit) == 55, f"维度配置错误: {len(dim_to_bit)} != 55"
+        
+        self.dim_to_bit = dim_to_bit
+        
+        # 创建量化器
         self.qas = nn.ModuleList([])
-        for i in range(n_qs): 
-            self.qas.append(VanillaQuan(bit=8).cuda())
-        print('Init qa, length:', n_qs)
+        for dim_idx in range(55):
+            bit = dim_to_bit[dim_idx]
+            for _ in range(n_block):
+                self.qas.append(VanillaQuan(bit=bit).cuda())
+        
+        n_qs = len(self.qas)
+        
+        print('='*70)
+        print('初始化量化器（多位数配置）')
+        print('='*70)
+        print(f'块数量: {n_block}')
+        print(f'总量化器数量: {n_qs} (55维 × {n_block}块)')
+        print()
+        print('量化位数配置:')
+        print(f'  opacity (1维):      {bit_config["opacity"]}-bit')
+        print(f'  euler (3维):        {bit_config["euler"]}-bit')
+        print(f'  f_dc (3维):         {bit_config["f_dc"]}-bit')
+        print(f'  f_rest_0 (15维):    {bit_config["f_rest_0"]}-bit  [SH degree 1]')
+        print(f'  f_rest_1 (15维):    {bit_config["f_rest_1"]}-bit  [SH degree 2]')
+        print(f'  f_rest_2 (15维):    {bit_config["f_rest_2"]}-bit  [SH degree 3]')
+        print(f'  scale (3维):        {bit_config["scale"]}-bit')
+        print('='*70)
 
     def reset_opacity(self):
         opacities_new = inverse_sigmoid(torch.ones_like(self.get_opacity)*0.01)
@@ -1148,103 +1250,110 @@ class GaussianModel:
         self._rotation = nn.Parameter(torch.tensor(rots, dtype=torch.float, device="cuda").requires_grad_(True))
     
     def load_npz(self, exp_dir):
+        """
+        Load compressed Gaussian model from NPZ files.
+        New format: 55-dim RAHT features (opacity + euler + f_dc + f_rest + scale)
+        No more VQ files (ntk.npz, um.npz) or separate scale file (ct.npz)
+        """
         bin_dir = os.path.join(exp_dir, 'bins')
-        print('bin_dir', bin_dir)
+        print('\n【加载压缩模型】')
+        print(f'  目录: {bin_dir}')
+        
+        # Load quantization parameters
         trans_array = np.load(os.path.join(bin_dir, 't.npz'))["t"]
-        
         depth = int(trans_array[0])
+        n_block = int(trans_array[1])
         self.depth = depth
+        self.n_block = n_block
         
+        print(f'  八叉树深度: {depth}')
+        print(f'  块数量: {n_block}')
+        
+        # 检查是否有量化位数配置（新格式）
+        expected_params_without_bits = 2 + 55 * n_block * 2  # depth + n_block + (scale+zp)*55*n_block
+        expected_params_with_bits = expected_params_without_bits + 55  # + 55个bit配置
+        
+        if len(trans_array) == expected_params_with_bits:
+            # 新格式：包含每个维度的bit配置
+            dim_bits = trans_array[expected_params_without_bits:].astype(int)
+            self.dim_to_bit = dim_bits.tolist()
+            print(f'  检测到多位数配置: {set(dim_bits)} bits')
+            print(f'    opacity: {dim_bits[0]}-bit')
+            print(f'    euler: {dim_bits[1]}-bit')
+            print(f'    f_dc: {dim_bits[4]}-bit')
+            print(f'    f_rest_0: {dim_bits[7]}-bit')
+            print(f'    f_rest_1: {dim_bits[22]}-bit')
+            print(f'    f_rest_2: {dim_bits[37]}-bit')
+            print(f'    scale: {dim_bits[52]}-bit')
+        elif len(trans_array) == expected_params_without_bits:
+            # 旧格式：所有维度8-bit
+            self.dim_to_bit = [8] * 55
+            print(f'  使用默认配置: 所有维度 8-bit')
+        else:
+            print(f'  警告: 参数数量不匹配 ({len(trans_array)} vs {expected_params_with_bits} or {expected_params_without_bits})')
+            self.dim_to_bit = [8] * 55
+        
+        # Load octree structure
         oct_vals = np.load(os.path.join(bin_dir , 'oct.npz'))
-        
         octree = oct_vals["points"]
         oct_param = oct_vals["params"]
         self.og_number_points = octree.shape[0]
+        
+        print(f'  八叉树点数: {octree.shape[0]}')
 
+        # Decode octree to get xyz positions
         dxyz, V = decode_oct(oct_param, octree, depth)
-
         self._xyz = nn.Parameter(torch.tensor(dxyz, dtype=torch.float, device="cuda").requires_grad_(False))
         n_points = dxyz.shape[0]
         
-        ntk = np.load(os.path.join(bin_dir , 'ntk.npz'))["ntk"]
-        cb = torch.tensor(np.load(os.path.join(bin_dir , 'um.npz'))["umap"])
-        # print('ntk.shape', ntk.shape)
-        # print('cb.shape', cb.shape)
+        print(f'  解码后点数: {n_points}')
         
-        features_rest = torch.zeros([ntk.shape[0], cb.shape[1]])
-        for i in range(ntk.shape[0]):
-            features_rest[i] = cb[int(ntk[i])]
-        self.n_sh = (self.max_sh_degree + 1) ** 2
-        self._features_rest = nn.Parameter(features_rest.to("cuda")).contiguous().reshape(-1, self.n_sh - 1, 3).requires_grad_(False)
-        
-        # self._features_rest = nn.Parameter(
-        #     torch.matmul(
-        #         F.one_hot(torch.tensor(ntk, dtype=torch.long, device="cuda")).float(), 
-        #         torch.tensor(cb, dtype=torch.float, device="cuda")
-        #     ).contiguous().reshape(-1, self.n_sh - 1, 3).requires_grad_(False))
-        
-        # print('gaussian model, line 1027, trans_array', trans_array.shape, trans_array)
-        
+        # Load RAHT coefficients (55 dimensions: opacity + euler + f_dc + f_rest + scale)
         oef_vals = np.load(os.path.join(bin_dir,'orgb.npz'))
-        orgb_f = torch.tensor(oef_vals["f"], dtype=torch.float, device="cuda")
-        q_orgb_i = torch.tensor(oef_vals["i"].astype(np.float32), dtype=torch.float, device="cuda").reshape(7, -1).contiguous().transpose(0, 1)
-        q_scale_i = torch.tensor(np.load(os.path.join(bin_dir, 'ct.npz'))["i"], dtype=torch.float, device="cuda").reshape(3, -1).contiguous().transpose(0, 1)
-        # q_orgb_i = torch.tensor(oef_vals["i"].astype(np.float32), dtype=torch.float, device="cuda").reshape(-1, 7)
-        # q_scale_i = torch.tensor(np.load(os.path.join(bin_dir, 'ct.npz'))["i"], dtype=torch.float, device="cuda").reshape(-1, 3)
+        orgb_f = torch.tensor(oef_vals["f"], dtype=torch.float, device="cuda")  # DC coefficient (55,)
+        q_raht_i = torch.tensor(oef_vals["i"].astype(np.float32), dtype=torch.float, device="cuda")
         
-        print('rf_orgb_f size', orgb_f.shape)
-        print('q_rf_orgb_i.shape', q_orgb_i.shape)
-        print('q_scale_i.shape', q_scale_i.shape)
+        print(f'  RAHT DC系数形状: {orgb_f.shape}')
+        print(f'  RAHT AC系数形状: {q_raht_i.shape}')
         
+        # Reshape quantized RAHT coefficients: (N-1, 55)
+        q_raht_i = q_raht_i.reshape(55, -1).contiguous().transpose(0, 1)
         
-        # lseg = int(trans_array[1])
-        # self.lseg = lseg
-        n_block = int(trans_array[1])
-        self.n_block = n_block
+        print(f'  重塑后 AC 系数: {q_raht_i.shape}')
         
-        '''dequant'''
-        qa_cnt = 2
-        rf_orgb = []
-        rf_len = q_orgb_i.shape[0]
-        # print('rf_len, n_points', rf_len, n_points)
-        assert rf_len + 1 == n_points
-        # if rf_len % self.lseg == 0:
-        #     n_rf = rf_len // self.lseg
-        # else:
-        #     n_rf = rf_len // self.lseg + 1
-        split = split_length(rf_len, n_block)
-        for i in range(7):
-            rf_i = torch_vanilla_dequant_ave(q_orgb_i[:, i], split, trans_array[qa_cnt:qa_cnt+2*n_block])
-            # print('rf_i.shape', rf_i.shape)
-            rf_orgb.append(rf_i.reshape(-1, 1))
+        # Dequantize all 55 dimensions
+        qa_cnt = 2  # Skip depth and n_block
+        raht_ac = []
+        ac_len = q_raht_i.shape[0]
+        
+        assert ac_len + 1 == n_points, f"AC length {ac_len} + 1 != n_points {n_points}"
+        
+        split = split_length(ac_len, n_block)
+        
+        print(f'\n  反量化 55 维 RAHT 特征...')
+        for i in range(55):
+            raht_i = torch_vanilla_dequant_ave(
+                q_raht_i[:, i], 
+                split, 
+                trans_array[qa_cnt:qa_cnt+2*n_block]
+            )
+            raht_ac.append(raht_i.reshape(-1, 1))
             qa_cnt += 2*n_block
-        rf_orgb = torch.concat(rf_orgb, dim=-1)
         
+        raht_ac = torch.concat(raht_ac, dim=-1)
         
-        de_scale = []
-        scale_len = q_scale_i.shape[0]
-        assert scale_len == n_points
-        # if scale_len % self.lseg == 0:
-        #     n_scale = scale_len // self.lseg
-        # else:
-        #     n_scale = scale_len // self.lseg + 1
-        scale_split = split_length(scale_len, n_block)
-        for i in range(3):
-            scale_i = torch_vanilla_dequant_ave(q_scale_i[:, i], scale_split, trans_array[qa_cnt:qa_cnt+2*n_block])
-            de_scale.append(scale_i.reshape(-1, 1))
-            qa_cnt += 2*n_block
-        de_scale = torch.concat(de_scale, axis=-1).to("cuda")
-        self._scaling = nn.Parameter(de_scale.requires_grad_(False))
+        print(f'  反量化完成，使用了 {qa_cnt - 2} 个量化参数 (55 × {n_block} × 2)')
+        print(f'  raht_ac 形状: {raht_ac.shape}')
         
-        print('qa_cnt', qa_cnt, 'trans', trans_array.shape)
-        print('rf_orgb.shape, de_scale.shape', rf_orgb.shape, de_scale.shape)
+        # Reconstruct full RAHT coefficient matrix
+        C = torch.concat([orgb_f.reshape(1, -1), raht_ac], 0)
         
-        C = torch.concat([orgb_f.reshape(1, -1), rf_orgb], 0)
+        print(f'  完整 RAHT 系数 C 形状: {C.shape}')
         
+        # Prepare for inverse RAHT transform
         w, val, reorder = copyAsort(V)
-
-        # print('saving 2')
         self.reorder = reorder  
+        
         res_inv = inv_haar3D_param(V, depth)
         pos = res_inv['pos']
         iW1 = res_inv['iW1']
@@ -1259,6 +1368,8 @@ class GaussianModel:
         iTrans_idx = res_inv['iTrans_idx']
         iTrans_idx_CT = res_inv['iTrans_idx_CT']
 
+        print(f'\n  执行逆 RAHT 变换...')
+        
         CT_yuv_q_temp = C[pos.astype(int)]
         raht_features = torch.zeros(C.shape).cuda()
         OC = torch.zeros(C.shape).cuda()
@@ -1273,7 +1384,6 @@ class GaussianModel:
             
             trans_idx, trans_idx_CT = iTrans_idx[i], iTrans_idx_CT[i]
             
-            
             OC[trans_idx] = CT_yuv_q_temp[trans_idx_CT]
             OC[left_idx], OC[right_idx] = itransform_batched_torch(w1, 
                                                     w2, 
@@ -1283,31 +1393,121 @@ class GaussianModel:
 
         raht_features[reorder] = OC
         
-        # rf_chk = torch.tensor(np.load('/home/szxie/mesongs/duipai/rf_cpu.npy'), dtype=torch.float, device='cuda')
-        # print(torch.sum(torch.square(rf_chk - raht_features)))
+        print(f'  逆 RAHT 变换完成')
+        print(f'  raht_features 形状: {raht_features.shape}')
         
-        # scale_chk = torch.tensor(np.load('/home/szxie/mesongs/duipai/scale_cpu.npy'), dtype=torch.float, device='cuda')
-        # print(torch.sum(torch.square(scale_chk - de_scale)))
-        
+        # Extract all attributes from RAHT features
+        # raht_features: [N, 55] = opacity(1) + euler(3) + f_dc(3) + f_rest(45) + scale(3)
         self._opacity = nn.Parameter(raht_features[:, :1].requires_grad_(False))
         self._euler = nn.Parameter(raht_features[:, 1:4].nan_to_num_(0).requires_grad_(False))
-        self._features_dc = nn.Parameter(raht_features[:, 4:].unsqueeze(1).requires_grad_(False))
-        # print('max euler', torch.max(self._euler))
+        self._features_dc = nn.Parameter(raht_features[:, 4:7].unsqueeze(1).requires_grad_(False))
+        
+        # Extract f_rest (45 dims) and reshape to [N, 15, 3]
+        self.n_sh = (self.max_sh_degree + 1) ** 2
+        f_rest_flat = raht_features[:, 7:52]  # 45 dims
+        self._features_rest = nn.Parameter(
+            f_rest_flat.reshape(-1, self.n_sh - 1, 3).requires_grad_(False)
+        )
+        
+        # Extract scale (3 dims) from RAHT features
+        self._scaling = nn.Parameter(raht_features[:, 52:55].requires_grad_(False))
+        
+        # Convert euler angles to quaternions for rotation
+        # euler: [N, 3] (roll, pitch, yaw) -> quaternion: [N, 4] (w, x, y, z)
+        euler_angles = self._euler.detach()
+        roll = euler_angles[:, 0]
+        pitch = euler_angles[:, 1]
+        yaw = euler_angles[:, 2]
+        
+        # Compute quaternion components
+        cy = torch.cos(yaw * 0.5)
+        sy = torch.sin(yaw * 0.5)
+        cp = torch.cos(pitch * 0.5)
+        sp = torch.sin(pitch * 0.5)
+        cr = torch.cos(roll * 0.5)
+        sr = torch.sin(roll * 0.5)
+        
+        w = cr * cp * cy + sr * sp * sy
+        x = sr * cp * cy - cr * sp * sy
+        y = cr * sp * cy + sr * cp * sy
+        z = cr * cp * sy - sr * sp * cy
+        
+        quaternions = torch.stack([w, x, y, z], dim=1)
+        self._rotation = nn.Parameter(quaternions.requires_grad_(False))
+        
+        print(f'\n  提取特征:')
+        print(f'    opacity: {self._opacity.shape}, 范围: [{self._opacity.min().item():.4f}, {self._opacity.max().item():.4f}]')
+        print(f'    euler: {self._euler.shape}, 范围: [{self._euler.min().item():.4f}, {self._euler.max().item():.4f}]')
+        print(f'    f_dc: {self._features_dc.shape}, 范围: [{self._features_dc.min().item():.4f}, {self._features_dc.max().item():.4f}]')
+        print(f'    f_rest: {self._features_rest.shape}, 范围: [{self._features_rest.min().item():.4f}, {self._features_rest.max().item():.4f}]')
+        print(f'    scale: {self._scaling.shape}, 范围: [{self._scaling.min().item():.4f}, {self._scaling.max().item():.4f}]')
+        print(f'    rotation: {self._rotation.shape}, 范围: [{self._rotation.min().item():.4f}, {self._rotation.max().item():.4f}]')
         
         self.active_sh_degree = self.max_sh_degree
         
+        print(f'\n【加载完成】所有属性已从 RAHT 特征中提取')
+    
+    def save_decompressed_ply(self, save_path):
+        """
+        保存从NPZ解压缩后的PLY文件
+        用于验证解压缩质量和可视化
+        """
+        mkdir_p(os.path.dirname(save_path))
+        
+        print(f'\n【保存解压缩的PLY文件】')
+        print(f'  保存路径: {save_path}')
+        
+        xyz = self._xyz.detach().cpu().numpy()
+        normals = np.zeros_like(xyz)
+        
+        # 从euler角恢复rotation四元数
+        euler = self._euler.detach().cpu().numpy()
+        
+        # Euler to Quaternion conversion
+        # euler: [roll, pitch, yaw]
+        roll = euler[:, 0]
+        pitch = euler[:, 1]
+        yaw = euler[:, 2]
+        
+        cy = np.cos(yaw * 0.5)
+        sy = np.sin(yaw * 0.5)
+        cp = np.cos(pitch * 0.5)
+        sp = np.sin(pitch * 0.5)
+        cr = np.cos(roll * 0.5)
+        sr = np.sin(roll * 0.5)
+        
+        w = cr * cp * cy + sr * sp * sy
+        x = sr * cp * cy - cr * sp * sy
+        y = cr * sp * cy + sr * cp * sy
+        z = cr * cp * sy - sr * sp * cy
+        
+        rotation = np.stack([w, x, y, z], axis=-1)
+        
+        # 其他属性
+        f_dc = self._features_dc.detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
+        f_rest = self._features_rest.detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
+        opacities = self._opacity.detach().cpu().numpy()
+        scale = self._scaling.detach().cpu().numpy()
+        
+        print(f'  点数: {xyz.shape[0]}')
+        print(f'  特征维度: DC={f_dc.shape[1]}, Rest={f_rest.shape[1]}')
+        
+        dtype_full = [(attribute, 'f4') for attribute in self.construct_list_of_attributes()]
+        
+        elements = np.empty(xyz.shape[0], dtype=dtype_full)
+        attributes = np.concatenate((xyz, normals, f_dc, f_rest, opacities, scale, rotation), axis=1)
+        elements[:] = list(map(tuple, attributes))
+        el = PlyElement.describe(elements, 'vertex')
+        PlyData([el]).write(save_path)
+        
+        print(f'  ✓ PLY文件已保存')
+        print(f'  文件大小: {os.path.getsize(save_path) / 1024 / 1024:.2f} MB')
+        
     def vq_fe(self, imp, codebook_size, batch_size, steps):
-        features_extra = self._features_rest.detach().flatten(-2)
-        codebook, vq_indices = vq_features(
-            features_extra,
-            imp,
-            codebook_size,
-            batch_size,
-            steps,
-        )
-
-        self._feature_indices = nn.Parameter(vq_indices.detach().contiguous(), requires_grad=False)
-        self._features_rest = nn.Parameter(codebook.detach().contiguous(), requires_grad=True)
+        # Skip VQ completely - f_rest will be handled by RAHT like f_dc
+        print(f"Skipping VQ - f_rest will use RAHT transform like f_dc")
+        # No need to create _feature_indices anymore
+        return
 
     def load_ply_euler(self, path, og_number_points=-1):
         self.og_number_points = og_number_points

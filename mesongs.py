@@ -587,6 +587,102 @@ config3 = {
     }
 }
 
+#add by sparseRAHT
+config4 = {
+    'n_block': {
+        'bicycle' : 57,
+        'bonsai' : 57,
+        'counter' : 57,
+        'garden' : 57,
+        'kitchen' : 57,
+        'room': 57,
+        'stump': 57,
+        'flowers': 57,
+        'treehill': 57,
+        'drjohnson': 57,
+        'playroom': 57,
+        'train': 57,
+        'truck': 57,
+        'chair': 52,
+        'drums': 57,
+        'ficus': 57,
+        'hotdog': 57,
+        'lego': 57,
+        'materials': 57,
+        'mic': 48,
+        'ship': 57
+    },
+    'cb': {
+        'chair': 2048,
+        'drums': 2048,
+        'ficus': 2048,
+        'hotdog': 4096,
+        'lego': 4096,
+        'materials': 4096,
+        'mic': 2048,
+        'ship': 8192,
+        'bicycle': 2048,
+        'bonsai': 2048,
+        'counter': 2048,
+        'garden': 2048,
+        'kitchen': 8192,
+        'room': 2048,
+        'stump': 2048,
+        'flowers': 2048,
+        'treehill': 2048,
+        'drjohnson': 2048,
+        'playroom': 2048,
+        'train': 4096,
+        'truck': 4096
+    },
+    'depth': {
+        'chair': 14,
+        'drums': 14,
+        'ficus': 14,
+        'hotdog': 14,
+        'lego': 14,
+        'materials': 14,
+        'mic': 14,
+        'ship': 14,
+        'bicycle': 20,
+        'bonsai': 19,
+        'counter': 19,
+        'garden': 20,
+        'kitchen': 19,
+        'room': 19,
+        'stump': 20,
+        'flowers': 20,
+        'treehill': 20,
+        'drjohnson': 20,
+        'playroom': 20,
+        'train': 20,
+        'truck': 20
+    },
+    'prune':  {
+        'chair': 0.16,
+        'drums': 0.28,
+        'ficus': 0.38,
+        'hotdog':  0.42,
+        'lego': 0.2,
+        'materials': 0.2,
+        'mic': 0.4,
+        'ship': 0.28,
+        'bicycle': 0.4,
+        'bonsai': 0.34,
+        'counter': 0.22,
+        'garden': 0.28,
+        'kitchen': 0.24,
+        'room': 0.32,
+        'stump': 0.3,
+        'flowers': 0.5,
+        'treehill': 0.5,
+        'drjohnson': 0.41,
+        'playroom': 0.2,
+        'train': 0.22,
+        'truck': 0.4
+    }
+}
+
 
 # 'prune':  {
 #         'chair': 0.06,
@@ -717,27 +813,80 @@ def training(dataset, opt, pipe, testing_iterations, given_ply_path=None):
     # nspd_mask = gaussians.check_spd()
     # print('nspd_mask.shape', nspd_mask.shape)
     
+    print("\n" + "="*70)
+    print("【步骤1】计算高斯点重要性")
+    print("="*70)
+    original_points = gaussians.get_xyz.shape[0]
+    print(f"原始高斯点数量: {original_points:,}")
+    
     with torch.no_grad():
         imp = cal_imp(gaussians, scene.getTrainCameras(), pipe, background)
     # imp = cal_sens(gaussians, scene.getTrainCameras(), pipe, background)
+    
+    print(f"重要性分数范围: [{imp.min().item():.6f}, {imp.max().item():.6f}]")
+    print(f"重要性分数均值: {imp.mean().item():.6f}")
 
+    print("\n" + "="*70)
+    print("【步骤2】剪枝不重要的高斯点")
+    print("="*70)
+    print(f"剪枝阈值: {dataset.percent*100:.1f}%")
     pmask = prune_mask(dataset.percent, imp)
+    points_to_prune = pmask.sum().item()
+    print(f"将要剪枝的点数: {points_to_prune:,} ({points_to_prune/original_points*100:.2f}%)")
+    
     imp = imp[torch.logical_not(pmask)]
-
     gaussians.prune_points(pmask)
+    
+    remaining_points = gaussians.get_xyz.shape[0]
+    print(f"剪枝后剩余点数: {remaining_points:,} ({remaining_points/original_points*100:.2f}%)")
+    print(f"实际剪枝数量: {original_points - remaining_points:,}")
+    
+    print("\n" + "="*70)
+    print("【步骤3】八叉树编码 + RAHT准备")
+    print("="*70)
+    print(f"八叉树深度: {dataset.depth}")
+    print(f"RAHT变换: {'启用' if dataset.raht else '禁用'}")
     
     gaussians.octree_coding(
         imp,
         dataset.oct_merge,
         raht=dataset.raht
     )
+    print(f"Morton编码完成，点云已排序")
     
+    print("\n" + "="*70)
+    print("【步骤4】初始化量化器")
+    print("="*70)
     if dataset.per_block_quant:
-        gaussians.init_qas(dataset.n_block)
-
-    gaussians.vq_fe(imp, dataset.codebook_size, dataset.batch_size, dataset.steps)
+        print(f"分块量化模式: 启用")
+        print(f"块数量 (n_block): {dataset.n_block}")
+        print(f"RAHT特征维度: 55 (opacity(1) + euler(3) + f_dc(3) + f_rest(45) + scale(3))")
         
-    print('Test Model (offline)...')
+        # 配置不同属性的量化位数
+        bit_config = {
+            'opacity': 8,       # alpha
+            'euler': 8,         # rotation (欧拉角)
+            'scale': 10,        # 需要更高精度
+            'f_dc': 8,          # sh_0
+            'f_rest_0': 4,      # sh_1 (SH degree 1: 系数0-14)
+            'f_rest_1': 4,      # sh_2 (SH degree 2: 系数15-29)
+            'f_rest_2': 2,      # sh_3 (SH degree 3: 系数30-44)
+        }
+        
+        gaussians.init_qas(dataset.n_block, bit_config=bit_config)
+    else:
+        print(f"分块量化模式: 禁用")
+
+    print("\n" + "="*70)
+    print("【步骤5】VQ训练（已跳过）")
+    print("="*70)
+    gaussians.vq_fe(imp, dataset.codebook_size, dataset.batch_size, dataset.steps)
+    print("f_rest 将使用 RAHT 变换，无需 VQ 码本")
+        
+    print("\n" + "="*70)
+    print("【步骤6】初始评估（Iteration 0）")
+    print("="*70)
+    print('开始测试集渲染...')
     with torch.no_grad():
         psnr_val, ssim_val, lpips_val = evaluate_test(
             scene,
@@ -746,8 +895,19 @@ def training(dataset, opt, pipe, testing_iterations, given_ply_path=None):
             background,
             iteration=0
         )
+        print("\n保存压缩文件...")
         zip_size = scene.save_ft("0", pipe, per_channel_quant=dataset.per_channel_quant, per_block_quant=dataset.per_block_quant)
         zip_size = zip_size / 1024 / 1024 # to MB
+        
+        print("\n" + "-"*70)
+        print("【初始评估结果】")
+        print("-"*70)
+        print(f"PSNR:  {psnr_val:.4f} dB")
+        print(f"SSIM:  {ssim_val:.4f}")
+        print(f"LPIPS: {lpips_val:.4f}")
+        print(f"文件大小: {zip_size:.2f} MB")
+        print("-"*70)
+        
         row = []
         row.append(pipe.scene_imp)
         row.extend([0, psnr_val, ssim_val, lpips_val, zip_size])
@@ -755,16 +915,26 @@ def training(dataset, opt, pipe, testing_iterations, given_ply_path=None):
         wtr = csv.writer(f)
         wtr.writerow(row)
         f.close()
-        print("Testset Evaluating {}. PSNR: {}, SSIM: {}, LIPIS: {}".format(0, psnr_val, ssim_val, lpips_val, zip_size))
     
-    gaussians.finetuning_setup(opt)
+    print("\n" + "="*70)
+    print("【步骤7】微调训练")
+    print("="*70)
+    print(f"总迭代次数: {opt.iterations}")
+    print(f"学习率缩放: {opt.finetune_lr_scale}")
+    print(f"测试迭代: {testing_iterations}")
+    print(f"稀疏性损失权重 (λ_s): {dataset.lambda_sparsity}")
+    if dataset.lambda_sparsity > 0:
+        print(f"  启用稀疏性正则化，促进RAHT系数稀疏化")
+    print("="*70 + "\n")
+    
+    gaussians.finetuning_setup(opt) #微调，需要固定位置，只对外观微调
 
     iter_start = torch.cuda.Event(enable_timing = True)
     iter_end = torch.cuda.Event(enable_timing = True)
         
     viewpoint_stack = None
     ema_loss_for_log = 0.0
-    progress_bar = tqdm(range(opt.iterations), desc="Training progress")
+    progress_bar = tqdm(range(opt.iterations), desc="微调进度")
     psnr_train = 0
     for iteration in range(1, opt.iterations + 1):    
         iter_start.record()
@@ -797,7 +967,33 @@ def training(dataset, opt, pipe, testing_iterations, given_ply_path=None):
         # Loss
         gt_image = viewpoint_cam.original_image.cuda()
         Ll1 = l1_loss(image, gt_image)
-        loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
+        
+        # 数据保真损失 (Data fidelity loss)
+        loss_D = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
+        
+        # 稀疏性损失 (Sparsity loss)
+        loss_S = 0.0
+        if dataset.lambda_sparsity > 0 and "raht_coeffs" in render_pkg:
+            # 获取RAHT AC系数
+            raht_ac = render_pkg["raht_coeffs"]  # shape: [n_ac, n_ch]
+            
+            # 计算稀疏性损失: L_S = (1/n_ch) * Σ_i Σ_j |x_ij|
+            # 其中:
+            #   n_ch: 通道数（高斯属性数量）= 55
+            #   n_ac: AC系数数量 = 点数 - 1
+            #   x_ij: 第i个通道的第j个AC系数
+            # 该公式对应于每个通道的平均L1范数
+            n_ch = raht_ac.shape[1]  # 通道数 (55)
+            n_ac = raht_ac.shape[0]   # AC系数数量
+            
+            # 实现: (1/n_ch) * sum(|x_ij|) for all i,j
+            # torch.abs(raht_ac).sum() 计算所有|x_ij|的总和
+            # 然后除以n_ch得到每个通道的平均L1范数
+            loss_S = torch.abs(raht_ac).sum() / n_ch
+        
+        # 总损失: L = (1 - λ_s) * L_D + λ_s * L_S
+        loss = (1.0 - dataset.lambda_sparsity) * loss_D + dataset.lambda_sparsity * loss_S
+        
         loss.backward()
 
         iter_end.record()
@@ -806,10 +1002,21 @@ def training(dataset, opt, pipe, testing_iterations, given_ply_path=None):
             # Progress bar
             ema_loss_for_log = 0.4 * loss.item() + 0.6 * ema_loss_for_log
             if iteration % 10 == 0:
-                progress_bar.set_postfix({"Loss": f"{ema_loss_for_log:.{7}f}"})
+                postfix_dict = {
+                    "损失": f"{ema_loss_for_log:.6f}",
+                    "L1": f"{Ll1.item():.6f}"
+                }
+                # 如果使用稀疏性损失，显示它
+                if dataset.lambda_sparsity > 0 and isinstance(loss_S, torch.Tensor):
+                    postfix_dict["稀疏"] = f"{loss_S.item():.2e}"
+                progress_bar.set_postfix(postfix_dict)
                 progress_bar.update(10)
             if iteration == opt.iterations:
                 progress_bar.close()
+                if dataset.lambda_sparsity > 0:
+                    print(f"\n微调完成！最终损失: {ema_loss_for_log:.6f} (包含稀疏性正则化)")
+                else:
+                    print(f"\n微调完成！最终损失: {ema_loss_for_log:.6f}")
 
             # Keep track of max radii in image-space for pruning
             # gaussians.max_radii2D[visibility_filter] = torch.max(gaussians.max_radii2D[visibility_filter], radii[visibility_filter])
@@ -971,7 +1178,19 @@ if __name__ == "__main__":
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--given_ply_path", default='', type=str)
     args = parser.parse_args(sys.argv[1:])
-    args.test_iterations = [int(x) for x in range(0, args.iterations+1, 400)]
+    
+    # Only auto-generate test_iterations if not provided in command line
+    # Check if test_iterations was explicitly provided (not default)
+    if '--test_iterations' not in sys.argv:
+        args.test_iterations = [int(x) for x in range(0, args.iterations+1, 400)]
+    
+    # Ensure iteration 0 and final iteration are included
+    if 0 not in args.test_iterations:
+        args.test_iterations = [0] + args.test_iterations
+    if args.iterations not in args.test_iterations:
+        args.test_iterations.append(args.iterations)
+    args.test_iterations = sorted(list(set(args.test_iterations)))
+    
     print('args.test_iterations', args.test_iterations)
     
     # args.save_iterations.append(args.iterations)
@@ -1008,6 +1227,10 @@ if __name__ == "__main__":
         dataset.n_block = used_config['n_block'][pipe.scene_imp]
         
     if not os.path.exists(dataset.csv_path):
+        # Create directory if it doesn't exist
+        csv_dir = os.path.dirname(dataset.csv_path)
+        os.makedirs(csv_dir, exist_ok=True)
+        
         f = open(dataset.csv_path, 'a+')
         wtr = csv.writer(f)
         wtr.writerow(['name', 'iteration', 'psnr', 'ssim', 'lpips', 'size'])

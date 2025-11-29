@@ -499,7 +499,7 @@ def haar3D(inV, inC, depth):
         # posT: 0, 1, 3, 2
         
         # transpose
-        N_idx_array=np.arange(N_T, N, -1)-NN-1
+        N_idx_array=np.arange(N_T-1, N-1, -1)
         wT[N_idx_array]=wT[np.where(maskT==True)[0]]                
         posT[N_idx_array]=pos[comb_idx_array+1]        
         
@@ -708,7 +708,7 @@ def haar3D_torch(inC, depth, w, val, TMP):
         # posT: 0, 1, 3, 2
         
         # transpose
-        N_idx_array=np.arange(N_T, N, -1)-NN-1
+        N_idx_array=np.arange(N_T-1, N-1, -1)
         wT[N_idx_array]=wT[np.where(maskT==True)[0]]                
         posT[N_idx_array]=pos[comb_idx_array+1]        
         
@@ -814,7 +814,7 @@ def get_RAHT_tree(inV, depth):
         M=N
         
         
-        N_idx_array=np.arange(N_T, N, -1)-NN-1
+        N_idx_array=np.arange(N_T-1, N-1, -1)
         wT[N_idx_array]=wT[np.where(maskT==True)[0]]                
         posT[N_idx_array]=pos[comb_idx_array+1]
         
@@ -940,7 +940,7 @@ def inv_haar3D(inV, inCT, depth):
         # N_idx_array, idx of high_freq
         N_T=N
         N=N-comb_idx_array.shape[0] 
-        N_idx_array=np.arange(N_T, N, -1)-NN-1
+        N_idx_array=np.arange(N_T-1, N-1, -1)
         
         
         left_node_array, right_node_array = comb_idx_array, comb_idx_array+1
@@ -1042,7 +1042,7 @@ def inv_haar3D_torch(inCT, depth, res_tree):
         # N_idx_array, idx of high_freq
         N_T=N
         N=N-comb_idx_array.shape[0] 
-        N_idx_array=np.arange(N_T, N, -1)-NN-1
+        N_idx_array=np.arange(N_T-1, N-1, -1)
         
         
         left_node_array, right_node_array = comb_idx_array, comb_idx_array+1
@@ -1116,7 +1116,7 @@ def haar3D_param(depth, w, val):
         N_T=N
         N=N-comb_idx_array.shape[0]
 
-        N_idx_array=np.arange(N_T, N, -1)-NN-1
+        N_idx_array=np.arange(N_T-1, N-1, -1)
         wT[N_idx_array]=wT[np.where(maskT==True)[0]]                
         posT[N_idx_array]=pos[comb_idx_array+1]        
 
@@ -1142,9 +1142,18 @@ def haar3D_param(depth, w, val):
 
 
 def inv_haar3D_param(inV, depth):
+
+    print(f"Debug: V shape = {inV.shape}, depth = {depth}")
+    print(f"Debug: V dtype = {inV.dtype}")
+
+    # 计算预期的数组大小
+
     N = inV.shape[0]
     NN = N
     depth *= 3
+
+    print(f"Debug: N = {N}, NN = {NN}, N_T = {N + NN}")
+    print(f"Debug: 数组大小 = {N + NN - N}")
 
     res_tree = get_RAHT_tree(inV, depth)
     reord, pos, iVAL, iW, iM = \
@@ -1187,8 +1196,10 @@ def inv_haar3D_param(inV, depth):
         maskT=mask[idxT_array.astype(int)]
 
         N_T=N
-        N=N-comb_idx_array.shape[0] 
-        N_idx_array=np.arange(N_T, N, -1)-NN-1
+        N=N-comb_idx_array.shape[0]
+        # Create index array for high-freq nodes: from N_T-1 down to N
+        num_high_freq = N_T - N
+        N_idx_array=np.arange(N, N_T)[::-1] if num_high_freq > 0 else np.array([], dtype=np.int64)
 
         left_node_array, right_node_array = comb_idx_array, comb_idx_array+1
         a = np.sqrt((w[left_node_array])+(w[right_node_array]))
@@ -1225,3 +1236,4 @@ def inv_haar3D_param(inV, depth):
         } 
     
     return res
+
