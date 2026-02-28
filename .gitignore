@@ -27,4 +27,7 @@ mesh_output/*
 data
 data/*
 scripts/mesongs_mip360.sh
-scripts/render_test.sh
+scripts/render_test.sh*.pt
+*.pt
+*.pth
+*.ply

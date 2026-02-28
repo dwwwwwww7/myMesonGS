@@ -1,0 +1,82 @@
+#!/bin/bash
+
+
+#!/bin/bash
+
+ITERS=1000
+TEST_ITERS="0 10 20 30 40 50 60 70 80 90 100 200 300 400 500 600 700 800 900 $ITERS" 
+CONFIG=config4
+QUANT_TYPE=lsq    # vanilla or lsq
+MODEL_BASE="F:/3dgs_data/models"
+OUTPUT_BASE="F:/3dgs_data/my_RAHT_results2026/test"
+CSV_BASE="F:/3dgs_data/my_RAHT_results2026/test/csv"
+
+mkdir -p "$OUTPUT_BASE"
+mkdir -p "$CSV_BASE"
+
+echo "QUANT_TYPE: $QUANT_TYPE"
+
+
+process_scene () {
+    local SCENE=$1
+    local DATAPATH=$2
+
+    echo "=== Processing scene: $SCENE ==="
+    
+    MODEL_PATH="$MODEL_BASE/$SCENE"
+    INITIALPATH="$MODEL_PATH/point_cloud/iteration_30000/point_cloud.ply"
+    CSVPATH="$CSV_BASE/${SCENE}_${CONFIG}.csv"
+    SAVEPATH="$OUTPUT_BASE/${SCENE}_${CONFIG}"
+    
+    # 调试：打印路径
+    echo "CSVPATH: $CSVPATH"
+    echo "SAVEPATH: $SAVEPATH"
+
+    python mesongs.py -s "$DATAPATH" \
+        --given_ply_path "$INITIALPATH" \
+        --save_imp \
+        --eval \
+        --iterations $ITERS \
+        --scene_imp $SCENE \
+        --raht \
+        --per_block_quant \
+        --hyper_config $CONFIG \
+        --csv_path "$CSVPATH" \
+        --model_path "$SAVEPATH" \
+        --quant $QUANT_TYPE \
+        --test_iterations $TEST_ITERS 
+        #--debug 
+
+    echo "=== Finished scene: $SCENE ==="
+    echo
+}
+
+# mic scene
+#SCENES=("mic" "lego" "drums" "ficus" "hotdog" "materials" "ship" "chair")
+#for SCENE in "${SCENES[@]}"; do
+ #   process_scene "$SCENE" "/data/zdw/datasets/nerf_synthetic/$SCENE"
+#done
+
+
+# TUM scenes
+# SCENES=("train" "truck")
+SCENES=("train")
+for SCENE in "${SCENES[@]}"; do
+    process_scene "$SCENE" "F:/3dgs_data/image&sparse/$SCENE"
+done
+
+# db
+#SCENES=("drjohnson" "playroom")
+#for SCENE in "${SCENES[@]}"; do
+#    process_scene "$SCENE" "E:/3dgs data/image&sparse/$SCENE"
+#done
+
+
+# 360_v2 scenes
+#SCENES=("counter" "room" "bicycle" "bonsai" "kitchen" "garden" "stump")
+#SCENES=("room")
+#for SCENE in "${SCENES[@]}"; do
+#    process_scene "$SCENE" "/data/zdw/datasets/360_v2/$SCENE"
+#done
+
+

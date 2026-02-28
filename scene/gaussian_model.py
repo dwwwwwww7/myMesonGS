@@ -27,10 +27,124 @@ from utils.general_utils import (build_rotation, build_scaling_rotation,
                                  get_expon_lr_func, inverse_sigmoid,
                                  strip_symmetric)
 from utils.graphics_utils import BasicPointCloud
-from utils.quant_utils import VanillaQuan, split_length
+from utils.quant_utils import VanillaQuan, split_length, LsqQuan,LSQPlusActivationQuantizer
 from utils.sh_utils import RGB2SH
 from utils.system_utils import mkdir_p
 from vq import vq_features
+
+from utils.gpcc_utils import compress_gpcc, decompress_gpcc
+import zipfile
+import glob
+
+
+
+def pack_bits(data, bit_depths):
+    """
+    将多个不同位宽的整数打包成紧凑的字节流
+    采用按属性打包策略：同一属性的所有高斯点打包在一起
+    
+    Args:
+        data: numpy array, shape (N, C), 每列是一个通道的量化值
+        bit_depths: list of int, 每个通道的位宽
+    
+    Returns:
+        bytes: 打包后的字节流
+        
+    打包顺序：
+        [所有点的属性0] [所有点的属性1] ... [所有点的属性C-1]
+    """
+    N, C = data.shape
+    assert len(bit_depths) == C, f"bit_depths length {len(bit_depths)} != channels {C}"
+    
+    # 计算总位数
+    total_bits = sum(bit_depths) * N
+    total_bytes = (total_bits + 7) // 8
+    
+    # 创建位流
+    bitstream = bytearray(total_bytes)
+    bit_pos = 0
+    
+    # 按属性（列）打包，而不是按高斯点（行）打包
+    for c in range(C):
+        bits = bit_depths[c]
+        for i in range(N):
+            value = int(data[i, c])
+            
+            # 确保值在有效范围内
+            max_val = (1 << bits) - 1
+            value = min(max(value, 0), max_val)
+            
+            # 写入位流
+            for b in range(bits):
+                if value & (1 << b):
+                    byte_idx = bit_pos // 8
+                    bit_idx = bit_pos % 8
+                    bitstream[byte_idx] |= (1 << bit_idx)
+                bit_pos += 1
+    
+    return bytes(bitstream)
+
+
+def unpack_bits(bitstream, bit_depths, N):
+    """
+    从字节流中解包多个不同位宽的整数
+    采用按属性解包策略：同一属性的所有高斯点打包在一起
+    
+    Args:
+        bitstream: bytes, 打包的字节流
+        bit_depths: list of int, 每个通道的位宽
+        N: int, 数据点数量
+    
+    Returns:
+        numpy array, shape (N, C)
+        
+    解包顺序：
+        [所有点的属性0] [所有点的属性1] ... [所有点的属性C-1]
+    """
+    C = len(bit_depths)
+    data = np.zeros((N, C), dtype=np.float32)
+    
+    # 计算需要的总位数
+    total_bits_needed = sum(bit_depths) * N
+    total_bytes_available = len(bitstream)
+    total_bits_available = total_bytes_available * 8
+    
+    # 检查是否有足够的数据
+    if total_bits_needed > total_bits_available:
+        print(f"警告: 需要 {total_bits_needed} 位，但只有 {total_bits_available} 位可用")
+        print(f"  N={N}, bit_depths={bit_depths}, sum={sum(bit_depths)}")
+        print(f"  bitstream 大小: {total_bytes_available} bytes")
+        # 调整 N 以适应可用数据
+        N = total_bits_available // sum(bit_depths)
+        print(f"  调整 N 为: {N}")
+        data = np.zeros((N, C), dtype=np.float32)
+    
+    bit_pos = 0
+    # 按属性（列）解包，而不是按高斯点（行）解包
+    for c in range(C):
+        bits = bit_depths[c]
+        for i in range(N):
+            value = 0
+            
+            # 读取位流
+            for b in range(bits):
+                byte_idx = bit_pos // 8
+                bit_idx = bit_pos % 8
+                
+                # 安全检查
+                if byte_idx >= len(bitstream):
+                    print(f"错误: byte_idx={byte_idx} 超出范围 (bitstream 大小={len(bitstream)})")
+                    print(f"  当前位置: c={c}, i={i}, b={b}, bit_pos={bit_pos}")
+                    return data
+                
+                if bitstream[byte_idx] & (1 << bit_idx):
+                    value |= (1 << b)
+                bit_pos += 1
+            
+            data[i, c] = value
+    
+    return data
+
 
 
 def create_zip_file(bin_dir, exp_dir):
@@ -179,6 +293,16 @@ def octreecodes(ppoints, pdepht, merge_type='mean',imps=None):
     otcodex=np.searchsorted(xletra,ppoints[:,0],side='right')-1
     otcodey=np.searchsorted(yletra,ppoints[:,1],side='right')-1
     otcodez=np.searchsorted(zletra,ppoints[:,2],side='right')-1
+    
+    # 关键修复：限制索引范围为 [0, 2^depth - 1]
+    # 原因：当 otcodex = otcodey = otcodez = 2^depth 时，
+    # Morton 码解码会因浮点精度问题导致 occodex = 2^depth + 1，越界！
+    # 将边界点映射到最后一个有效区间 (2^depth - 1)
+    max_idx = 2**pdepht - 1
+    otcodex = np.clip(otcodex, 0, max_idx)
+    otcodey = np.clip(otcodey, 0, max_idx)
+    otcodez = np.clip(otcodez, 0, max_idx)
+    
     ki=otcodex*(2**(pdepht*2))+otcodey*(2**pdepht)+otcodez
     
     ki_ranks = np.argsort(ki)
@@ -246,9 +370,19 @@ def torch_seg_quant(x, lseg, qas):
             r = i + lseg 
         else:
             r = lx
-        i_scale = qas[cnt].scale
-        i_zp = qas[cnt].zero_point
-        i_dtype = qas[cnt].dtype
+        
+        # 兼容不同量化器的属性名
+        if hasattr(qas[cnt], 'scale'):
+            # VanillaQuan
+            i_scale = qas[cnt].scale
+            i_zp = qas[cnt].zero_point
+            i_dtype = qas[cnt].dtype
+        elif hasattr(qas[cnt], 's'):
+            # LsqQuan (不支持 torch.quantize_per_tensor)
+            raise NotImplementedError("torch_seg_quant does not support LsqQuan. Use torch_vanilla_quant instead.")
+        else:
+            raise ValueError(f"Unsupported quantizer type: {type(qas[cnt])}")
+        
         outs.append(torch.quantize_per_tensor(
             x[i:r],
             scale=i_scale,
@@ -269,14 +403,29 @@ def torch_vanilla_quant(x, lseg, qas):
             r = i + lseg 
         else:
             r = lx
-        i_scale = qas[cnt].scale
-        i_zp = qas[cnt].zero_point
+        
+        # 兼容不同量化器的属性名
+        if hasattr(qas[cnt], 'scale'):
+            # VanillaQuan 使用 scale 和 zero_point
+            i_scale = qas[cnt].scale
+            i_zp = qas[cnt].zero_point
+            i_signed = False
+        elif hasattr(qas[cnt], 's'):
+            # LsqQuan 使用 s，没有 zero_point
+            i_scale = qas[cnt].s
+            i_zp = torch.tensor(0.0, device=qas[cnt].s.device)  # LSQ 使用对称量化
+            # all_positive=False 时使用有符号量化
+            i_signed = not hasattr(qas[cnt], 'thd_neg') or qas[cnt].thd_neg < 0
+        else:
+            raise ValueError(f"Unsupported quantizer type: {type(qas[cnt])}")
+        
         i_bit = qas[cnt].bit
         outs.append(quantize_tensor(
             x[i:r],
             scale=i_scale,
             zero_point=i_zp,
-            num_bits=i_bit).cpu().numpy())
+            num_bits=i_bit,
+            signed=i_signed).cpu().numpy())
         trans.extend([i_scale.item(), i_zp.item()])
         cnt+=1
     return np.concatenate(outs, axis=0), trans
@@ -287,14 +436,28 @@ def torch_vanilla_quant_ave(x, split, qas):
     outs = []
     trans = []
     for length in split:
-        i_scale = qas[cnt].scale
-        i_zp = qas[cnt].zero_point
+        # 兼容不同量化器的属性名
+        if hasattr(qas[cnt], 'scale'):
+            # VanillaQuan 使用 scale 和 zero_point
+            i_scale = qas[cnt].scale
+            i_zp = qas[cnt].zero_point
+            i_signed = False
+        elif hasattr(qas[cnt], 's'):
+            # LsqQuan 使用 s，没有 zero_point
+            i_scale = qas[cnt].s
+            i_zp = torch.tensor(0.0, device=qas[cnt].s.device)  # LSQ 使用对称量化
+            # all_positive=False 时使用有符号量化
+            i_signed = not hasattr(qas[cnt], 'thd_neg') or qas[cnt].thd_neg < 0
+        else:
+            raise ValueError(f"Unsupported quantizer type: {type(qas[cnt])}")
+        
         i_bit = qas[cnt].bit
         outs.append(quantize_tensor(
             x[start:start+length], 
             scale=i_scale,
             zero_point=i_zp,
-            num_bits=i_bit).cpu().numpy()) 
+            num_bits=i_bit,
+            signed=i_signed).cpu().numpy()) 
         trans.extend([i_scale.item(), i_zp.item()])
         cnt += 1
         start += length
@@ -340,6 +503,22 @@ def torch_vanilla_dequant_ave(x, split, sz):
     return torch.concat(outs, axis=0)
 
 def decode_oct(paramarr, oct, depth):
+    """
+    解码八叉树 Morton 编码为坐标
+    
+    Args:
+        paramarr: [minx, maxx, miny, maxy, minz, maxz]
+        oct: Morton 编码数组，形状 (N,)
+        depth: 八叉树深度
+    
+    Returns:
+        ori_points: 解码后的坐标，形状 (N, 3)
+        V: 体素索引，形状 (N, 3)
+    """
+    # 确保 oct 是一维数组
+    if len(oct.shape) > 1:
+        oct = oct.flatten()
+    
     minx=(paramarr[0])
     maxx=(paramarr[1])
     miny=(paramarr[2])
@@ -352,11 +531,23 @@ def decode_oct(paramarr, oct, depth):
     occodex=(oct/(2**(depth*2))).astype(int)
     occodey=((oct-occodex*(2**(depth*2)))/(2**depth)).astype(int)
     occodez=(oct-occodex*(2**(depth*2))-occodey*(2**depth)).astype(int)
-    V = np.array([occodex,occodey,occodez], dtype=int).T
+    
+    # 安全修复：限制索引范围为 [0, 2^depth - 1]
+    # 与编码时保持一致，防止浮点精度导致的越界
+    max_idx = 2**depth - 1
+    occodex = np.clip(occodex, 0, max_idx)
+    occodey = np.clip(occodey, 0, max_idx)
+    occodez = np.clip(occodez, 0, max_idx)
+    
+    # V 应该是 (N, 3)，不是 (3, N)
+    V = np.stack([occodex, occodey, occodez], axis=1).astype(int)
+    
     koorx=xletra[occodex]
     koory=yletra[occodey]
     koorz=zletra[occodez]
-    ori_points=np.array([koorx,koory,koorz]).T
+    
+    # ori_points 应该是 (N, 3)，不是 (3, N)
+    ori_points = np.stack([koorx, koory, koorz], axis=1)
 
     return ori_points, V
 
@@ -593,6 +784,10 @@ class GaussianModel:
             {'params': [self._scaling], 'lr': training_args.scaling_lr*self.spatial_lr_scale, "name": "scaling"},
             {'params': [self._rotation], 'lr': training_args.rotation_lr, "name": "rotation"}
         ]
+        
+        if hasattr(self, 'qas'):
+            l.append({'params': self.qas.parameters(), 'lr': 0.001, "name": "quantizers"})
+
 
         self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)
         self.xyz_scheduler_args = get_expon_lr_func(lr_init=training_args.position_lr_init*self.spatial_lr_scale,
@@ -620,6 +815,10 @@ class GaussianModel:
             {'params': [self._scaling], 'lr': training_args.scaling_lr*self.spatial_lr_scale, "name": "scaling"},
             {'params': [self._rotation], 'lr': training_args.rotation_lr, "name": "rotation"}
         ]
+        
+        if hasattr(self, 'qas'):
+            l.append({'params': self.qas.parameters(), 'lr': 0.001, "name": "quantizers"})
+
 
         self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)
         self.xyz_scheduler_args = get_expon_lr_func(lr_init=training_args.position_lr_init*self.spatial_lr_scale,
@@ -805,15 +1004,22 @@ class GaussianModel:
             # np.savez_compressed(os.path.join(bin_dir,'ct.npz'), i=scaling_q.astype(np.uint8))
             # np.savez_compressed(os.path.join(bin_dir, 't.npz'), t=trans_array)
 
-            # Use cross-platform zip function
-            bin_zip_path = create_zip_file(bin_dir, exp_dir)
+
+            # MesonGS的zip压缩，采用的命令行方法，会在windows上用不了，因此我改成python的zipfile实现
+            # bin_zip_name = bin_dir.split('/')[-1]
+            # bin_zip_path = os.path.join(exp_dir, f'{bin_zip_name}.zip')
+            # os.system(f'zip -j {bin_zip_path} {bin_dir}/*')
+
+            # Use cross-platform zip function  
+            bin_zip_path = create_zip_file(bin_dir, exp_dir)  #zipfile
+            
             zip_file_size = os.path.getsize(bin_zip_path)
 
             print('final sum:', zip_file_size , 'B')
             print('final sum:', zip_file_size / 1024, 'KB')
             print('final sum:', zip_file_size / 1024 / 1024, 'MB')
             
-    def save_npz(self, exp_dir, pipe, per_channel_quant=False, per_block_quant=False):
+    def save_npz(self, exp_dir, pipe, per_channel_quant=False, per_block_quant=False, bit_packing=True):
         
         os.makedirs(exp_dir, exist_ok=True)
         bin_dir = os.path.join(exp_dir, 'bins')
@@ -825,7 +1031,26 @@ class GaussianModel:
         with torch.no_grad():
             print("\n【保存压缩文件】")
             print(f"  保存八叉树结构...")
-            np.savez_compressed(os.path.join(bin_dir , 'oct'), points=self.oct, params=self.oct_param)
+
+             #########################################GPCC压缩位置属性#############################
+             # Inverse operation of ki=otcodex*(2**(pdepht*2))+otcodey*(2**pdepht)+otcodez
+            occodex=(self.oct/(2**(self.depth*2))).astype(int)
+            occodey=((self.oct-occodex*(2**(self.depth*2)))/(2**self.depth)).astype(int)
+            occodez=(self.oct-occodex*(2**(self.depth*2))-occodey*(2**self.depth)).astype(int)
+            voxel_xyz = np.array([occodex,occodey,occodez], dtype=int).T
+            voxel_xyz = voxel_xyz[self.reorder]
+
+            # INSTEAD OF SAVING OCTREE CODES (64 BIT FOR EACH POINT) WE CAN PERFORM OCTREE CODING TO SAVE THE CORRESPONDING BINARY STRING
+            means_strings = compress_gpcc(voxel_xyz)
+
+            #np.savez_compressed(os.path.join(bin_dir , 'oct'), points=means_strings, params=self.oct_param) #还做压缩
+            np.savez(os.path.join(bin_dir , 'oct'), points=means_strings, params=self.oct_param) #后面不做压缩
+            #########################################GPCC压缩位置属性#############################
+            
+
+            # 直接压缩 如果不做GPCC请使用这个，如果使用GPCC请注释掉下面这行
+            # np.savez_compressed(os.path.join(bin_dir , 'oct'), points=self.oct, params=self.oct_param)
+            
             print(f"    oct.npz: {self.oct.shape[0]} 个点")
             
             # No more VQ - f_rest will be handled by RAHT
@@ -876,22 +1101,38 @@ class GaussianModel:
                 qci = []
                 dqci = []
                 for i in range(C.shape[-1]):
+                    qa = self.qas[i]
+                    if hasattr(qa, 'scale'):
+                        # VanillaQuan
+                        i_scale = qa.scale
+                        i_zp = qa.zero_point
+                        i_signed = False
+                    elif hasattr(qa, 's'):
+                        # LsqQuan
+                        i_scale = qa.s
+                        i_zp = torch.tensor(0.0, device=qa.s.device)
+                        # all_positive=False 时使用有符号量化
+                        i_signed = not hasattr(qa, 'thd_neg') or qa.thd_neg < 0
+                    else:
+                        raise ValueError(f"Unsupported quantizer type: {type(qa)}")
+                    
                     q_tensor_i = quantize_tensor(
                                 x=C[1:, i],
-                                scale=self.qas[i].scale,
-                                zero_point=self.qas[i].zero_point,
-                                num_bits=self.qas[i].bit
+                                scale=i_scale,
+                                zero_point=i_zp,
+                                num_bits=qa.bit,
+                                signed=i_signed
                                 ).cpu().numpy().reshape(-1, 1)
                     qci.append(
                         q_tensor_i
                     )
 
                     dqci.append(
-                        (q_tensor_i.astype(np.float32) - self.qas[i].zero_point.item()) * self.qas[i].scale.item()
+                        (q_tensor_i.astype(np.float32) - i_zp.item()) * i_scale.item()
                     )
 
-                    trans_array.append(self.qas[i].scale.item())
-                    trans_array.append(self.qas[i].zero_point.item())
+                    trans_array.append(i_scale.item())
+                    trans_array.append(i_zp.item())
 
                 qci = np.concatenate(qci, axis=-1)
                 dqci = np.concatenate(dqci, axis=-1)
@@ -914,7 +1155,7 @@ class GaussianModel:
                     dim_bits.append(current_bit)
                     
                     t1, trans1 = torch_vanilla_quant_ave(C[1:, i], split, self.qas[qa_cnt : qa_cnt + self.n_block])
-                    qci.append(t1)
+                    qci.append(t1.reshape(-1, 1))  # 添加维度: (N,) -> (N, 1)
                     trans_array.extend(trans1)
                     qa_cnt += self.n_block
                 
@@ -924,38 +1165,109 @@ class GaussianModel:
                 # 保存量化位数配置
                 trans_array.extend(dim_bits)  # 添加55个维度的bit信息
                 
-                qci = np.concatenate(qci, axis=-1)
+                qci = np.concatenate(qci, axis=-1)  # 现在形状是 (N, 55)
+                
+                # 调试：打印 qci 的形状
+                print(f"    qci 形状: {qci.shape}")
             else:
+                # 兼容不同量化器的属性名
+                if hasattr(self.qa, 'scale'):
+                    # VanillaQuan
+                    i_scale = self.qa.scale
+                    i_zp = self.qa.zero_point
+                    i_signed = False
+                elif hasattr(self.qa, 's'):
+                    # LsqQuan
+                    i_scale = self.qa.s
+                    i_zp = torch.tensor(0.0, device=self.qa.s.device)
+                    i_signed = not hasattr(self.qa, 'thd_neg') or self.qa.thd_neg < 0
+                else:
+                    raise ValueError(f"Unsupported quantizer type: {type(self.qa)}")
+                
                 qci = quantize_tensor(
                     C[1:],
-                    scale=self.qa.scale,
-                    zero_point=self.qa.zero_point,
-                    num_bits=self.qa.bit
+                    scale=i_scale,
+                    zero_point=i_zp,
+                    num_bits=self.qa.bit,
+                    signed=i_signed
                 ).cpu().numpy()
-                trans_array.append(self.qa.scale.item())
-                trans_array.append(self.qa.zero_point.item())
+                trans_array.append(i_scale.item())
+                trans_array.append(i_zp.item())
+                dim_bits = [self.qa.bit] * 55  # 所有维度使用相同的位数
                 
             print(f"\n  保存 RAHT 系数 (包含 scale)...")
             
-            # 根据最大位数选择数据类型
-            if per_block_quant and hasattr(self, 'dim_to_bit'):
-                max_bit = max(self.dim_to_bit)
+            # 选择存储方式：位打包 vs 分组存储
+            if per_block_quant:
+                from collections import defaultdict
+                
+                # 按位宽分组
+                bit_groups = defaultdict(list)
+                for dim_idx, bit in enumerate(dim_bits):
+                    bit_groups[bit].append(dim_idx)
+                
+                if bit_packing:
+                    # 位打包存储（默认方式）
+                    print(f"    使用位打包存储:")
+                    print(f"      位宽配置: {set(dim_bits)} bits")
+                    print(f"      总位数: {sum(dim_bits)} bits/point")
+                    
+                    # 执行位打包
+                    bitstream = pack_bits(qci, dim_bits)
+                    bitstream_size = len(bitstream) / 1024
+                    
+                    save_dict = {
+                        'f': cf,  # DC 系数
+                        'i': np.frombuffer(bitstream, dtype=np.uint8),  # 位打包的AC系数
+                        'packed': np.array([1], dtype=np.uint8),  # 标记为位打包格式
+                        'bit_config': np.array(dim_bits, dtype=np.uint8)  # 位宽配置
+                    }
+                    
+                    print(f"      原始大小: {qci.nbytes / 1024:.2f} KB")
+                    print(f"      打包后大小: {bitstream_size:.2f} KB")
+                    print(f"      压缩比: {qci.nbytes / len(bitstream):.2f}x")
+                    
+                else:
+                    # 分组存储（兼容模式）
+                    print(f"    按位宽分组存储 (兼容模式):")
+                    save_dict = {'f': cf}  # DC 系数
+                    total_size_uncompressed = 0
+                    
+                    for bit in sorted(bit_groups.keys()):
+                        dims = bit_groups[bit]
+                        
+                        # 选择最小的合适数据类型
+                        if bit <= 8:
+                            dtype = np.uint8
+                        elif bit <= 16:
+                            dtype = np.uint16
+                        else:
+                            dtype = np.uint32
+                        
+                        # 提取对应维度的数据（按列存储，保持数据规律性）
+                        group_data = qci[:, dims].astype(dtype)
+                        group_size = group_data.nbytes / 1024
+                        total_size_uncompressed += group_size
+                        
+                        # 保存到字典
+                        key = f'i_{bit}bit'
+                        save_dict[key] = group_data
+                        save_dict[f'dims_{bit}bit'] = np.array(dims, dtype=np.uint8)
+                        
+                        print(f"      {bit:2d}-bit: {len(dims):2d} 维度, {dtype.__name__:6s}, {group_size:8.2f} KB")
+                    
+                    print(f"    orgb.npz: 总大小 {total_size_uncompressed:.2f} KB (未压缩)")
+                
+                # 保存文件
+                np.savez(os.path.join(bin_dir,'orgb.npz'), **save_dict)
+                print(f"    包含所有 55 维特征 (opacity + euler + f_dc + f_rest + scale)")
+                
             else:
-                max_bit = 8
-            
-            if max_bit <= 8:
-                qci_dtype = np.uint8
-                print(f"    使用 uint8 存储（最大 {max_bit}-bit）")
-            elif max_bit <= 16:
-                qci_dtype = np.uint16
-                print(f"    使用 uint16 存储（最大 {max_bit}-bit）")
-            else:
-                qci_dtype = np.uint32
-                print(f"    使用 uint32 存储（最大 {max_bit}-bit）")
-            
-            np.savez_compressed(os.path.join(bin_dir,'orgb.npz'), f=cf, i=qci.astype(qci_dtype))
-            print(f"    orgb.npz: 形状 {qci.shape}, 大小 {qci.nbytes / 1024:.2f} KB")
-            print(f"    包含所有 55 维特征 (opacity + euler + f_dc + f_rest + scale)")
+                # 单一位宽模式（向后兼容）
+                print(f"    使用 uint8 存储（单一位宽模式）")
+                ##np.savez_compressed(os.path.join(bin_dir,'orgb.npz'), f=cf, i=qci.astype(np.uint8))
+                np.savez(os.path.join(bin_dir,'orgb.npz'), f=cf, i=qci.astype(np.uint8))
+                print(f"    orgb.npz: 形状 {qci.shape}, 大小 {qci.nbytes / 1024:.2f} KB")
             
             # Scale is now included in RAHT features, no separate ct.npz needed
             print(f"\n  跳过独立的 Scale 文件 (ct.npz) - Scale 已包含在 RAHT 特征中")
@@ -974,7 +1286,8 @@ class GaussianModel:
             print(f"  文件大小: {zip_file_size / 1024:.2f} KB")
             print(f"  文件大小: {zip_file_size / 1024 / 1024:.2f} MB")
 
-    def init_qas(self, n_block, bit_config=None):
+
+    def init_qas(self, n_block, bit_config=None, quant_type='vanilla'):
         """
         初始化量化器，支持不同属性使用不同的量化位数
         
@@ -985,15 +1298,15 @@ class GaussianModel:
                     'opacity': 8,      # 1维
                     'euler': 8,        # 3维
                     'f_dc': 8,         # 3维
-                    'f_rest_0': 4,     # 15维 (sh_1: 0-14)
-                    'f_rest_1': 4,     # 15维 (sh_2: 15-29)
-                    'f_rest_2': 2,     # 15维 (sh_3: 30-44)
+                    'f_rest_0': 4,     # 9维 (sh_1: 0-8)
+                    'f_rest_1': 4,     # 15维 (sh_2: 9-23)
+                    'f_rest_2': 2,     # 21维 (sh_3: 24-44)
                     'scale': 10        # 3维
                 }
         """
         self.n_block = n_block
         
-        # 默认配置：所有属性8-bit
+        # 如果没有设置，启用默认配置：所有属性8-bit
         if bit_config is None:
             bit_config = {
                 'opacity': 8,
@@ -1011,9 +1324,9 @@ class GaussianModel:
         # 0: opacity (1)
         # 1-3: euler (3)
         # 4-6: f_dc (3)
-        # 7-21: f_rest_0 (15) - sh_1
-        # 22-36: f_rest_1 (15) - sh_2
-        # 37-51: f_rest_2 (15) - sh_3
+        # 7-15: f_rest_0 (9) - sh_1
+        # 16-30: f_rest_1 (15) - sh_2
+        # 31-51: f_rest_2 (21) - sh_3
         # 52-54: scale (3)
         
         dim_to_bit = []
@@ -1027,14 +1340,14 @@ class GaussianModel:
         # f_dc (3维)
         dim_to_bit.extend([bit_config['f_dc']] * 3)
         
-        # f_rest_0 (15维) - sh_1
-        dim_to_bit.extend([bit_config['f_rest_0']] * 15)
+        # f_rest_0 (9维) - sh_1
+        dim_to_bit.extend([bit_config['f_rest_0']] * 9)
         
-        # f_rest_1 (15维) - sh_2
+        # f_rest_1 (16维) - sh_2
         dim_to_bit.extend([bit_config['f_rest_1']] * 15)
         
-        # f_rest_2 (15维) - sh_3
-        dim_to_bit.extend([bit_config['f_rest_2']] * 15)
+        # f_rest_2 (21维) - sh_3
+        dim_to_bit.extend([bit_config['f_rest_2']] * 21)
         
         # scale (3维)
         dim_to_bit.extend([bit_config['scale']] * 3)
@@ -1045,10 +1358,15 @@ class GaussianModel:
         
         # 创建量化器
         self.qas = nn.ModuleList([])
+        self.quant_type = quant_type
         for dim_idx in range(55):
             bit = dim_to_bit[dim_idx]
             for _ in range(n_block):
-                self.qas.append(VanillaQuan(bit=bit).cuda())
+                if quant_type == 'lsq':
+                    self.qas.append(LsqQuan(bit=bit, init_yet=False, all_positive=False, per_channel=False).cuda())
+                else:
+                    self.qas.append(VanillaQuan(bit=bit).cuda())
+
         
         n_qs = len(self.qas)
         
@@ -1056,6 +1374,7 @@ class GaussianModel:
         print('初始化量化器（多位数配置）')
         print('='*70)
         print(f'块数量: {n_block}')
+        print(f'量化方式: {quant_type.upper()}')
         print(f'总量化器数量: {n_qs} (55维 × {n_block}块)')
         print()
         print('量化位数配置:')
@@ -1067,6 +1386,73 @@ class GaussianModel:
         print(f'  f_rest_2 (15维):    {bit_config["f_rest_2"]}-bit  [SH degree 3]')
         print(f'  scale (3维):        {bit_config["scale"]}-bit')
         print('='*70)
+    
+    def print_quantization_params(self, iteration=None):
+        """
+        打印当前的量化参数（LSQ 的 scale 值）和位深配置
+        
+        Args:
+            iteration: 当前迭代次数（可选）
+        """
+        if iteration is not None:
+            print(f"\n{'='*70}")
+            print(f"量化参数 [Iteration {iteration}]")
+            print(f"{'='*70}")
+        else:
+            print(f"\n{'='*70}")
+            print(f"量化参数")
+            print(f"{'='*70}")
+        
+        # 打印位深配置
+        if hasattr(self, 'bit_config'):
+            print("\n位深配置:")
+            print(f"  opacity:   {self.bit_config['opacity']}-bit")
+            print(f"  euler:     {self.bit_config['euler']}-bit")
+            print(f"  f_dc:      {self.bit_config['f_dc']}-bit")
+            print(f"  f_rest_0:  {self.bit_config['f_rest_0']}-bit")
+            print(f"  f_rest_1:  {self.bit_config['f_rest_1']}-bit")
+            print(f"  f_rest_2:  {self.bit_config['f_rest_2']}-bit")
+            print(f"  scale:     {self.bit_config['scale']}-bit")
+        
+        # 打印 LSQ 量化参数（scale 值）
+        if hasattr(self, 'qas') and len(self.qas) > 0:
+            print(f"\nLSQ 量化参数 (scale 值):")
+            print(f"  总量化器数量: {len(self.qas)}")
+            
+            # 按维度分组统计
+            dim_names = ['opacity'] + ['euler']*3 + ['f_dc']*3 + \
+                       ['f_rest_0']*15 + ['f_rest_1']*15 + ['f_rest_2']*15 + ['scale']*3
+            
+            # 统计每个维度的 scale 值
+            dim_scales = {}
+            qa_idx = 0
+            for dim_idx, dim_name in enumerate(dim_names):
+                if dim_name not in dim_scales:
+                    dim_scales[dim_name] = []
+                
+                # 每个维度有 n_block 个量化器
+                for block_idx in range(self.n_block):
+                    if qa_idx < len(self.qas):
+                        qa = self.qas[qa_idx]
+                        if hasattr(qa, 's'):
+                            scale_val = qa.s.item()
+                            dim_scales[dim_name].append(scale_val)
+                        qa_idx += 1
+            
+            # 打印每个维度的统计信息
+            print(f"\n  {'维度':<12s} | {'位深':<6s} | {'平均scale':<12s} | {'最小scale':<12s} | {'最大scale':<12s}")
+            print(f"  {'-'*12}-+-{'-'*6}-+-{'-'*12}-+-{'-'*12}-+-{'-'*12}")
+            
+            for dim_name in ['opacity', 'euler', 'f_dc', 'f_rest_0', 'f_rest_1', 'f_rest_2', 'scale']:
+                if dim_name in dim_scales and len(dim_scales[dim_name]) > 0:
+                    scales = dim_scales[dim_name]
+                    bit = self.bit_config[dim_name]
+                    avg_scale = sum(scales) / len(scales)
+                    min_scale = min(scales)
+                    max_scale = max(scales)
+                    print(f"  {dim_name:<12s} | {bit:<6d} | {avg_scale:<12.6f} | {min_scale:<12.6f} | {max_scale:<12.6f}")
+        
+        print(f"{'='*70}\n")
 
     def reset_opacity(self):
         opacities_new = inverse_sigmoid(torch.ones_like(self.get_opacity)*0.01)
@@ -1297,12 +1683,23 @@ class GaussianModel:
         oct_vals = np.load(os.path.join(bin_dir , 'oct.npz'))
         octree = oct_vals["points"]
         oct_param = oct_vals["params"]
-        self.og_number_points = octree.shape[0]
-        
-        print(f'  八叉树点数: {octree.shape[0]}')
 
-        # Decode octree to get xyz positions
-        dxyz, V = decode_oct(oct_param, octree, depth)
+        ##############################GPCC from PCS25#######################
+        #OCTREE DECODING USING GPCC
+        decompressed_V = decompress_gpcc(octree)
+        decompressed_V = decompressed_V.astype('int64')
+
+        self.og_number_points = decompressed_V.shape[0]
+        ##############################GPCC from PCS25#######################
+        
+        #OCTREE DECODING without GPCC 如果不使用GPCC需要使用下一行
+        #self.og_number_points = octree.shape[0] 
+        
+        print(f'  八叉树点数: {self.og_number_points}')
+        
+        dxyz, V = decode_oct(oct_param, decompressed_V, depth)  #GPCC
+        #OCTREE DECODING without GPCC 如果不使用GPCC需要使用下一行
+        #dxyz, V = decode_oct(oct_param, octree, depth)  #不使用GPCC
         self._xyz = nn.Parameter(torch.tensor(dxyz, dtype=torch.float, device="cuda").requires_grad_(False))
         n_points = dxyz.shape[0]
         
@@ -1311,15 +1708,84 @@ class GaussianModel:
         # Load RAHT coefficients (55 dimensions: opacity + euler + f_dc + f_rest + scale)
         oef_vals = np.load(os.path.join(bin_dir,'orgb.npz'))
         orgb_f = torch.tensor(oef_vals["f"], dtype=torch.float, device="cuda")  # DC coefficient (55,)
-        q_raht_i = torch.tensor(oef_vals["i"].astype(np.float32), dtype=torch.float, device="cuda")
         
         print(f'  RAHT DC系数形状: {orgb_f.shape}')
-        print(f'  RAHT AC系数形状: {q_raht_i.shape}')
         
-        # Reshape quantized RAHT coefficients: (N-1, 55)
-        q_raht_i = q_raht_i.reshape(55, -1).contiguous().transpose(0, 1)
+        # 检查存储格式
+        is_packed = 'packed' in oef_vals and oef_vals['packed'][0] == 1
+        is_grouped = any(key.startswith('i_') and key.endswith('bit') for key in oef_vals.keys())
         
-        print(f'  重塑后 AC 系数: {q_raht_i.shape}')
+        # 重要修复：AC 系数的数量应该基于原始八叉树点数，而不是解码后的点数
+        # 因为 RAHT 是在八叉树结构上进行的，解码后的点数可能因为重复而增加
+        ac_len = self.og_number_points - 1
+        print(f'  AC 系数数量: {ac_len} (基于原始八叉树点数 {self.og_number_points})')
+        
+        if is_packed:
+            # 位打包存储格式
+            print(f'  检测到位打包格式')
+            
+            # 获取位宽配置
+            if 'bit_config' in oef_vals:
+                # 新格式：位宽配置存储在文件中
+                dim_bits = oef_vals['bit_config'].tolist()
+                print(f'    从文件读取位宽配置: {set(dim_bits)} bits')
+            else:
+                # 旧格式：从 trans_array 中获取
+                expected_params_without_bits = 2 + 55 * n_block * 2
+                if len(trans_array) > expected_params_without_bits:
+                    dim_bits = trans_array[expected_params_without_bits:].astype(int).tolist()
+                    print(f'    从参数数组读取位宽配置: {set(dim_bits)} bits')
+                else:
+                    dim_bits = self.dim_to_bit
+                    print(f'    使用默认位宽配置: {set(dim_bits)} bits')
+            
+            print(f'    总位数: {sum(dim_bits)} bits/point')
+            
+            # 解包位流
+            bitstream = bytes(oef_vals["i"])
+            print(f'    位流大小: {len(bitstream)} bytes')
+            
+            q_raht_i = unpack_bits(bitstream, dim_bits, ac_len)
+            q_raht_i = torch.tensor(q_raht_i, dtype=torch.float, device="cuda")
+            
+            print(f'  解包后 AC 系数: {q_raht_i.shape}')
+            
+        elif is_grouped:
+            # 旧格式：按位宽分组存储
+            print(f'  检测到分组存储格式')
+            
+            # 重组数据
+            q_raht_i = np.zeros((ac_len, 55), dtype=np.float32)
+            
+            # 从各个分组中提取数据
+            for key in oef_vals.keys():
+                if key.startswith('i_') and key.endswith('bit'):
+                    bit = int(key.split('_')[1].replace('bit', ''))
+                    dims_key = f'dims_{bit}bit'
+                    
+                    if dims_key in oef_vals:
+                        group_data = oef_vals[key]
+                        dims = oef_vals[dims_key]
+                        
+                        # 将分组数据放回对应维度
+                        q_raht_i[:, dims] = group_data.astype(np.float32)
+                        
+                        print(f'    加载 {bit:2d}-bit 组: {len(dims):2d} 维度, 形状 {group_data.shape}')
+            
+            q_raht_i = torch.tensor(q_raht_i, dtype=torch.float, device="cuda")
+            print(f'  重组后 AC 系数: {q_raht_i.shape}')
+            
+        else:
+            # 最旧格式：统一存储
+            print(f'  检测到统一存储格式（向后兼容）')
+            q_raht_i = torch.tensor(oef_vals["i"].astype(np.float32), dtype=torch.float, device="cuda")
+            
+            print(f'  RAHT AC系数形状: {q_raht_i.shape}')
+            
+            # Reshape quantized RAHT coefficients: (N-1, 55)
+            q_raht_i = q_raht_i.reshape(55, -1).contiguous().transpose(0, 1)
+            
+            print(f'  重塑后 AC 系数: {q_raht_i.shape}')
         
         # Dequantize all 55 dimensions
         qa_cnt = 2  # Skip depth and n_block
@@ -1500,7 +1966,7 @@ class GaussianModel:
         el = PlyElement.describe(elements, 'vertex')
         PlyData([el]).write(save_path)
         
-        print(f'  ✓ PLY文件已保存')
+        print(f'  [OK] PLY文件已保存')
         print(f'  文件大小: {os.path.getsize(save_path) / 1024 / 1024:.2f} MB')
         
     def vq_fe(self, imp, codebook_size, batch_size, steps):

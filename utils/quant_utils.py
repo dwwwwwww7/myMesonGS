@@ -100,6 +100,7 @@ def round_pass(x):
 class Quantizer(nn.Module):
     def __init__(self, bit):
         super().__init__()
+        self.bit = bit  # 保存 bit 属性
 
     def init_from(self, x, *args, **kwargs):
         pass
@@ -141,13 +142,13 @@ class LsqQuan(Quantizer):
         self.init_yet = init_yet
     
     def init_from(self, x, *args, **kwargs):
-        if self.per_channel:
-            self.s = nn.Parameter(
-                x.detach().abs().mean(dim=list(range(1, x.dim())), keepdim=True) * 2 / (self.thd_pos ** 0.5))
-        else:
-            self.s = nn.Parameter(x.detach().abs().mean() * 2 / (self.thd_pos ** 0.5))
+        with torch.no_grad():
+            if self.per_channel:
+                self.s.data = x.detach().abs().mean(dim=list(range(1, x.dim())), keepdim=True) * 2 / (self.thd_pos ** 0.5)
+            else:
+                self.s.data.fill_(x.detach().abs().mean().item() * 2 / (self.thd_pos ** 0.5))
         self.init_yet = True
-        # print('quant_utils.py Line 62:', self.s)
+        print('quant_utils.py init_from:', self.s)
     
     def forward(self, x):
         if self.per_channel:

@@ -391,6 +391,17 @@ def ft_render(
                                                   w2, 
                                                   C[left_idx], 
                                                   C[right_idx])
+                                                  
+        # ----- Temporary Research Code -----
+        # 保存 iter0 (第一次前向传播时) 的 RAHT 系数
+        global _SAVED_RAHT_C
+        if '_SAVED_RAHT_C' not in globals() or not _SAVED_RAHT_C:
+            import os
+            save_path = "raht_C_iter0.pt"
+            torch.save(C.detach().cpu(), save_path)
+            print(f"\n[临时研究] 已将 RAHT 变换后、量化前的系数保存至 {save_path}！")
+            _SAVED_RAHT_C = True
+        # -----------------------------------
         
         if should_print_debug:
             print(f"  RAHT变换后 C 范围: [{C.min().item():.4f}, {C.max().item():.4f}]")
@@ -400,6 +411,8 @@ def ft_render(
         quantC[0] = C[0]
         if per_channel_quant:
             for i in range(C.shape[-1]):
+                if hasattr(pc.qas[i], 'init_yet') and not pc.qas[i].init_yet:
+                    pc.qas[i].init_from(C[1:, i])
                 quantC[1:, i] = pc.qas[i](C[1:, i])
         elif per_block_quant:
             qa_cnt = 0
@@ -412,6 +425,13 @@ def ft_render(
                 print(f"  量化 55 维 RAHT 特征 (包含 scale)...")
             
             for i in range(C.shape[-1]):
+                for j, length in enumerate(split_ac):
+                    qa_idx = qa_cnt + j
+                    if hasattr(pc.qas[qa_idx], 'init_yet') and not pc.qas[qa_idx].init_yet:
+                        start_idx = sum(split_ac[:j]) + 1
+                        end_idx = start_idx + length
+                        pc.qas[qa_idx].init_from(C[start_idx:end_idx, i])
+
                 quantC[1:, i] = seg_quant_ave(C[1:, i], split_ac, pc.qas[qa_cnt : qa_cnt + pc.n_block])
                 qa_cnt += pc.n_block
             
@@ -419,6 +439,8 @@ def ft_render(
                 print(f"  所有特征量化完成，使用了 {qa_cnt} 个量化器 (55 × {pc.n_block})")
             
         else:
+            if hasattr(pc.qa, 'init_yet') and not pc.qa.init_yet:
+                pc.qa.init_from(C[1:])
             quantC[1:] = pc.qa(C[1:])
 
         if should_print_debug:

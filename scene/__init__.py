@@ -117,7 +117,7 @@ class Scene:
         
         return point_cloud_path
 
-    def save_ft(self, iteration, pipe, per_channel_quant=False, per_block_quant=False):
+    def save_ft(self, iteration, pipe, per_channel_quant=False, per_block_quant=False, bit_packing=True):
         pc_path = os.path.join(self.model_path, "point_cloud/iteration_{}".format(iteration))
         print('save_npz gaussians:', pc_path)
         # self.gaussians.save_ft_ply(os.path.join(pc_path, "point_cloud.ply"))
@@ -125,7 +125,7 @@ class Scene:
             print('save_npz gaussians:', pc_path)
             self.gaussians.save_full_npz(os.path.join(pc_path, "pc_npz"), pipe, per_channel_quant=per_channel_quant, per_block_quant=per_block_quant)
         else:
-            self.gaussians.save_npz(os.path.join(pc_path, "pc_npz"), pipe, per_channel_quant=per_channel_quant, per_block_quant=per_block_quant)
+            self.gaussians.save_npz(os.path.join(pc_path, "pc_npz"), pipe, per_channel_quant=per_channel_quant, per_block_quant=per_block_quant, bit_packing=bit_packing)
         return os.path.getsize(os.path.join(pc_path, "pc_npz", "bins.zip"))
         
     def getTrainCameras(self, scale=1.0):

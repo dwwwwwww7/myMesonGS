@@ -21,7 +21,9 @@
 DATA_BASE="E:/3dgs data/image&sparse"
 MODEL_BASE="E:/3dgs data/models"
 OUTPUT_BASE="E:/3dgs data/MesonGS/output"
-CSV_BASE="E:/3dgs data/MesonGS/exp_data/csv"
+CSV_BASE="E:/3dgs data/MesonGS/exp_data"
+mkdir -p "$OUTPUT_BASE"
+mkdir -p "$CSV_BASE"
 
 # 要处理的场景列表
 declare -a SCENES=(

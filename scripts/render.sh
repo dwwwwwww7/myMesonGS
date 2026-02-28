@@ -3,12 +3,12 @@
 # MesonGS 渲染脚本 - 支持多场景批量渲染
 
 # 路径配置
-MAINDIR="E:/3dgs data/MesonGS"
+MAINDIR="E:/swisstransfer_13badc40-f390-47aa-9715-08c791d9b3bf/sparseRAHT_backup"  #"E:/3dgs data/MesonGS"
 DATADIR="E:/3dgs data/image&sparse"
 
 # 要处理的场景列表（取消注释需要的场景）
 declare -a SCENES=(
-    "playroom"
+    #"playroom"
     # "bicycle"
     # "bonsai"
     # "counter"
@@ -16,8 +16,8 @@ declare -a SCENES=(
     # "room"
     # "stump"
     # "garden"
-    # "train"
-    # "truck"
+     "train"
+     "truck"
     # "chair"
     # "drums"
     # "ficus"
@@ -29,8 +29,8 @@ declare -a SCENES=(
 )
 
 # 默认配置
-DEFAULT_CONFIG="config3"
-DEFAULT_ITERATION="0"    # 可选: "best", "-1"(自动), "0", "10", 或具体数字
+DEFAULT_CONFIG="config4"
+DEFAULT_ITERATION="2000"    # 可选: "best", "-1"(自动), "0", "10", 或具体数字
 
 # 渲染选项
 SKIP_TRAIN=true             # 是否跳过训练集渲染

@@ -64,6 +64,7 @@ class ModelParams(ParamGroup):
         self.percent=0.66
         self.per_channel_quant=False
         self.per_block_quant=True
+        self.bit_packing=True  # 位打包功能，默认开启（将被手动参数覆盖）
         self.clamp_color=True 
         self.meson_count=False 
         self.f_count=False
@@ -73,6 +74,7 @@ class ModelParams(ParamGroup):
         self.depth=12
         self.num_bits=8
         self.lambda_sparsity=5e-7  # 稀疏性损失权重
+        self.quant="vanilla"  # 量化方式: vanilla 或 lsq
         super().__init__(parser, "Loading Parameters", sentinel)
 
     def extract(self, args):

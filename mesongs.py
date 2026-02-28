@@ -788,6 +788,10 @@ def evaluate_test(scene, dataset, pipe, background, iteration=0):
         lpipss.append(lpips(image, gt_image, net_type='vgg'))
 
     
+    # 打印量化参数
+    if hasattr(scene.gaussians, 'print_quantization_params'):
+        scene.gaussians.print_quantization_params(iteration=iteration)
+        
     psnr_val = torch.tensor(psnrs).mean()
     ssim_val = torch.tensor(ssims).mean()
     lpips_val = torch.tensor(lpipss).mean()
@@ -861,6 +865,7 @@ def training(dataset, opt, pipe, testing_iterations, given_ply_path=None):
         print(f"分块量化模式: 启用")
         print(f"块数量 (n_block): {dataset.n_block}")
         print(f"RAHT特征维度: 55 (opacity(1) + euler(3) + f_dc(3) + f_rest(45) + scale(3))")
+        print(f"位打包: {'启用' if dataset.bit_packing else '禁用 (使用分组存储)'}")
         
         # 配置不同属性的量化位数
         bit_config = {
@@ -873,7 +878,7 @@ def training(dataset, opt, pipe, testing_iterations, given_ply_path=None):
             'f_rest_2': 2,      # sh_3 (SH degree 3: 系数30-44)
         }
         
-        gaussians.init_qas(dataset.n_block, bit_config=bit_config)
+        gaussians.init_qas(dataset.n_block, bit_config=bit_config, quant_type=dataset.quant)
     else:
         print(f"分块量化模式: 禁用")
 
@@ -896,7 +901,7 @@ def training(dataset, opt, pipe, testing_iterations, given_ply_path=None):
             iteration=0
         )
         print("\n保存压缩文件...")
-        zip_size = scene.save_ft("0", pipe, per_channel_quant=dataset.per_channel_quant, per_block_quant=dataset.per_block_quant)
+        zip_size = scene.save_ft("0", pipe, per_channel_quant=dataset.per_channel_quant, per_block_quant=dataset.per_block_quant, bit_packing=dataset.bit_packing)
         zip_size = zip_size / 1024 / 1024 # to MB
         
         print("\n" + "-"*70)
@@ -1042,7 +1047,7 @@ def training(dataset, opt, pipe, testing_iterations, given_ply_path=None):
             if cur_psnr > psnr_train:
                 psnr_train = cur_psnr
                 print("\n Saving best Gaussians on Train Set.")
-                scene.save_ft('best', pipe, per_channel_quant=dataset.per_channel_quant, per_block_quant=dataset.per_block_quant)
+                scene.save_ft('best', pipe, per_channel_quant=dataset.per_channel_quant, per_block_quant=dataset.per_block_quant, bit_packing=dataset.bit_packing)
  
             
             # Optimizer step
@@ -1134,6 +1139,11 @@ def training_report(
             
             if mode == 'train':           
                 print("\n[ITER {}] Evaluating {}: L1 {} PSNR {}".format(iteration, mode, l1_test, psnr_val))
+                
+                # 打印量化参数
+                if hasattr(scene.gaussians, 'print_quantization_params'):
+                    scene.gaussians.print_quantization_params(iteration=iteration)
+                
                 if tb_writer:
                     tb_writer.add_scalar(mode + '/loss_viewpoint - l1_loss', l1_test, iteration)
                     tb_writer.add_scalar(mode + '/loss_viewpoint - psnr', psnr_val, iteration)
@@ -1150,7 +1160,7 @@ def training_report(
             tb_writer.add_scalar('total_points', scene.gaussians.get_xyz.shape[0], iteration)
         torch.cuda.empty_cache()
         
-        zip_size = scene.save_ft(iteration, pipe, per_channel_quant=dataset.per_channel_quant, per_block_quant=dataset.per_block_quant)
+        zip_size = scene.save_ft(iteration, pipe, per_channel_quant=dataset.per_channel_quant, per_block_quant=dataset.per_block_quant, bit_packing=dataset.bit_packing)
         zip_size = zip_size / 1024 / 1024
         
         row = []
@@ -1214,6 +1224,8 @@ if __name__ == "__main__":
         used_config = config2
     elif pipe.hyper_config == 'config3':
         used_config = config3
+    elif pipe.hyper_config == 'config4':
+        used_config = config4
     else:
         used_config = None
     # use given config
