@@ -766,7 +766,7 @@ def evaluate_test(scene, dataset, pipe, background, iteration=0):
     gts_path = os.path.join(model_path, 'gt', f'iter_{iteration}')
     os.makedirs(gts_path, exist_ok=True)
 
-    for idx, viewpoint in enumerate(tqdm(cams)):
+    for idx, viewpoint in enumerate(tqdm(cams, desc="Evaluating Testset")):
         image = ft_render(
             viewpoint, 
             scene.gaussians, 
@@ -789,8 +789,8 @@ def evaluate_test(scene, dataset, pipe, background, iteration=0):
 
     
     # 打印量化参数
-    if hasattr(scene.gaussians, 'print_quantization_params'):
-        scene.gaussians.print_quantization_params(iteration=iteration)
+    #if hasattr(scene.gaussians, 'print_quantization_params'):
+    #    scene.gaussians.print_quantization_params(iteration=iteration)
         
     psnr_val = torch.tensor(psnrs).mean()
     ssim_val = torch.tensor(ssims).mean()
@@ -801,7 +801,7 @@ def evaluate_test(scene, dataset, pipe, background, iteration=0):
 
 def training(dataset, opt, pipe, testing_iterations, given_ply_path=None):
     # print('dataset.eval', dataset.eval)
-    print('debug', dataset.debug)
+    # print('debug', dataset.debug)
 
     # magnify the lr scale of the covergence process is too slow.
     opt.finetune_lr_scale = lr_scale_list[pipe.scene_imp] * 4 
@@ -817,81 +817,54 @@ def training(dataset, opt, pipe, testing_iterations, given_ply_path=None):
     # nspd_mask = gaussians.check_spd()
     # print('nspd_mask.shape', nspd_mask.shape)
     
-    print("\n" + "="*70)
-    print("【步骤1】计算高斯点重要性")
-    print("="*70)
+    print("\n" + "-"*50)
+    print("【Step1】重要性剪枝")
+    print("-"*50)
     original_points = gaussians.get_xyz.shape[0]
-    print(f"原始高斯点数量: {original_points:,}")
     
     with torch.no_grad():
         imp = cal_imp(gaussians, scene.getTrainCameras(), pipe, background)
     # imp = cal_sens(gaussians, scene.getTrainCameras(), pipe, background)
-    
-    print(f"重要性分数范围: [{imp.min().item():.6f}, {imp.max().item():.6f}]")
-    print(f"重要性分数均值: {imp.mean().item():.6f}")
 
-    print("\n" + "="*70)
-    print("【步骤2】剪枝不重要的高斯点")
-    print("="*70)
-    print(f"剪枝阈值: {dataset.percent*100:.1f}%")
     pmask = prune_mask(dataset.percent, imp)
-    points_to_prune = pmask.sum().item()
-    print(f"将要剪枝的点数: {points_to_prune:,} ({points_to_prune/original_points*100:.2f}%)")
-    
     imp = imp[torch.logical_not(pmask)]
     gaussians.prune_points(pmask)
-    
     remaining_points = gaussians.get_xyz.shape[0]
-    print(f"剪枝后剩余点数: {remaining_points:,} ({remaining_points/original_points*100:.2f}%)")
-    print(f"实际剪枝数量: {original_points - remaining_points:,}")
+    print(f"  剪枝: {original_points:,} → {remaining_points:,} 点 ({dataset.percent*100:.0f}% pruned)")
     
-    print("\n" + "="*70)
-    print("【步骤3】八叉树编码 + RAHT准备")
-    print("="*70)
-    print(f"八叉树深度: {dataset.depth}")
-    print(f"RAHT变换: {'启用' if dataset.raht else '禁用'}")
-    
+    print("\n" + "-"*50)
+    print("【Step2】八叉树编码 & 量化器初始化")
+    print("-"*50)
     gaussians.octree_coding(
         imp,
         dataset.oct_merge,
         raht=dataset.raht
     )
-    print(f"Morton编码完成，点云已排序")
+    print(f"  八叉树: depth={dataset.depth}, RAHT={'ON' if dataset.raht else 'OFF'}")
     
-    print("\n" + "="*70)
-    print("【步骤4】初始化量化器")
-    print("="*70)
     if dataset.per_block_quant:
-        print(f"分块量化模式: 启用")
-        print(f"块数量 (n_block): {dataset.n_block}")
-        print(f"RAHT特征维度: 55 (opacity(1) + euler(3) + f_dc(3) + f_rest(45) + scale(3))")
-        print(f"位打包: {'启用' if dataset.bit_packing else '禁用 (使用分组存储)'}")
-        
         # 配置不同属性的量化位数
         bit_config = {
             'opacity': 8,       # alpha
             'euler': 8,         # rotation (欧拉角)
             'scale': 10,        # 需要更高精度
             'f_dc': 8,          # sh_0
-            'f_rest_0': 4,      # sh_1 (SH degree 1: 系数0-14)
-            'f_rest_1': 4,      # sh_2 (SH degree 2: 系数15-29)
-            'f_rest_2': 2,      # sh_3 (SH degree 3: 系数30-44)
+            'f_rest_0': 4,      # sh_1 (SH degree 1: 9维)
+            'f_rest_1': 4,      # sh_2 (SH degree 2: 15维)
+            'f_rest_2': 2,      # sh_3 (SH degree 3: 21维)
         }
         
         gaussians.init_qas(dataset.n_block, bit_config=bit_config, quant_type=dataset.quant)
     else:
-        print(f"分块量化模式: 禁用")
+        print(f"  分块量化: 禁用")
 
-    print("\n" + "="*70)
-    print("【步骤5】VQ训练（已跳过）")
-    print("="*70)
-    gaussians.vq_fe(imp, dataset.codebook_size, dataset.batch_size, dataset.steps)
-    print("f_rest 将使用 RAHT 变换，无需 VQ 码本")
+
+    # VQ训练（本项目不使用VQ，进入vq_fe函数后会跳过）
+    # gaussians.vq_fe(imp, dataset.codebook_size, dataset.batch_size, dataset.steps)
         
-    print("\n" + "="*70)
-    print("【步骤6】初始评估（Iteration 0）")
-    print("="*70)
-    print('开始测试集渲染...')
+    print("\n" + "-"*50)
+    print("【Step3】初始评估 (Iter 0)")
+    print("-"*50)
     with torch.no_grad():
         psnr_val, ssim_val, lpips_val = evaluate_test(
             scene,
@@ -900,18 +873,10 @@ def training(dataset, opt, pipe, testing_iterations, given_ply_path=None):
             background,
             iteration=0
         )
-        print("\n保存压缩文件...")
         zip_size = scene.save_ft("0", pipe, per_channel_quant=dataset.per_channel_quant, per_block_quant=dataset.per_block_quant, bit_packing=dataset.bit_packing)
         zip_size = zip_size / 1024 / 1024 # to MB
         
-        print("\n" + "-"*70)
-        print("【初始评估结果】")
-        print("-"*70)
-        print(f"PSNR:  {psnr_val:.4f} dB")
-        print(f"SSIM:  {ssim_val:.4f}")
-        print(f"LPIPS: {lpips_val:.4f}")
-        print(f"文件大小: {zip_size:.2f} MB")
-        print("-"*70)
+        print(f"  PSNR: {psnr_val:.4f} | SSIM: {ssim_val:.4f} | LPIPS: {lpips_val:.4f} | Size: {zip_size:.2f} MB")
         
         row = []
         row.append(pipe.scene_imp)
@@ -921,16 +886,10 @@ def training(dataset, opt, pipe, testing_iterations, given_ply_path=None):
         wtr.writerow(row)
         f.close()
     
-    print("\n" + "="*70)
-    print("【步骤7】微调训练")
-    print("="*70)
-    print(f"总迭代次数: {opt.iterations}")
-    print(f"学习率缩放: {opt.finetune_lr_scale}")
-    print(f"测试迭代: {testing_iterations}")
-    print(f"稀疏性损失权重 (λ_s): {dataset.lambda_sparsity}")
-    if dataset.lambda_sparsity > 0:
-        print(f"  启用稀疏性正则化，促进RAHT系数稀疏化")
-    print("="*70 + "\n")
+    print("\n" + "-"*50)
+    print("【Step4】微调训练")
+    print("-"*50)
+    print(f"  迭代: {opt.iterations} | LR×{opt.finetune_lr_scale:.2f} | 量化: {dataset.quant.upper()}")
     
     gaussians.finetuning_setup(opt) #微调，需要固定位置，只对外观微调
 
@@ -1141,8 +1100,8 @@ def training_report(
                 print("\n[ITER {}] Evaluating {}: L1 {} PSNR {}".format(iteration, mode, l1_test, psnr_val))
                 
                 # 打印量化参数
-                if hasattr(scene.gaussians, 'print_quantization_params'):
-                    scene.gaussians.print_quantization_params(iteration=iteration)
+                #if hasattr(scene.gaussians, 'print_quantization_params'):
+                #    scene.gaussians.print_quantization_params(iteration=iteration)
                 
                 if tb_writer:
                     tb_writer.add_scalar(mode + '/loss_viewpoint - l1_loss', l1_test, iteration)

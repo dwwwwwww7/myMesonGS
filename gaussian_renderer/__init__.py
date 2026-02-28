@@ -391,17 +391,6 @@ def ft_render(
                                                   w2, 
                                                   C[left_idx], 
                                                   C[right_idx])
-                                                  
-        # ----- Temporary Research Code -----
-        # 保存 iter0 (第一次前向传播时) 的 RAHT 系数
-        global _SAVED_RAHT_C
-        if '_SAVED_RAHT_C' not in globals() or not _SAVED_RAHT_C:
-            import os
-            save_path = "raht_C_iter0.pt"
-            torch.save(C.detach().cpu(), save_path)
-            print(f"\n[临时研究] 已将 RAHT 变换后、量化前的系数保存至 {save_path}！")
-            _SAVED_RAHT_C = True
-        # -----------------------------------
         
         if should_print_debug:
             print(f"  RAHT变换后 C 范围: [{C.min().item():.4f}, {C.max().item():.4f}]")

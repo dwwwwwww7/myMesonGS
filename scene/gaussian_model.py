@@ -1029,8 +1029,8 @@ class GaussianModel:
         trans_array.append(self.n_block)
 
         with torch.no_grad():
-            print("\n【保存压缩文件】")
-            print(f"  保存八叉树结构...")
+            # print("\n【保存压缩文件】")
+            # print(f"  保存八叉树结构...")
 
              #########################################GPCC压缩位置属性#############################
              # Inverse operation of ki=otcodex*(2**(pdepht*2))+otcodey*(2**pdepht)+otcodez
@@ -1051,12 +1051,12 @@ class GaussianModel:
             # 直接压缩 如果不做GPCC请使用这个，如果使用GPCC请注释掉下面这行
             # np.savez_compressed(os.path.join(bin_dir , 'oct'), points=self.oct, params=self.oct_param)
             
-            print(f"    oct.npz: {self.oct.shape[0]} 个点")
+            # print(f"    oct.npz: {self.oct.shape[0]} 个点")
             
             # No more VQ - f_rest will be handled by RAHT
-            print(f"  跳过 VQ 文件（ntk.npz, um.npz）")
+            # print(f"  跳过 VQ 文件（ntk.npz, um.npz）")
             
-            print(f"\n  构建 RAHT 输入特征...")
+            # print(f"\n  构建 RAHT 输入特征...")
             r = self.get_ori_rotation
             norm = torch.sqrt(r[:,0]*r[:,0] + r[:,1]*r[:,1] + r[:,2]*r[:,2] + r[:,3]*r[:,3])
             q = r / norm[:, None]
@@ -1072,10 +1072,10 @@ class GaussianModel:
                 self.get_ori_scaling.detach()  # scale (3 dims)
             ], axis=-1)
             
-            print(f"    rf 形状: {rf.shape} (55维)")
-            print(f"    包含: opacity(1) + euler(3) + f_dc(3) + f_rest(45) + scale(3)")
+            # print(f"    rf 形状: {rf.shape} (55维)")
+            # print(f"    包含: opacity(1) + euler(3) + f_dc(3) + f_rest(45) + scale(3)")
             
-            print(f"\n  执行 RAHT 正向变换...")
+            # print(f"\n  执行 RAHT 正向变换...")
             C = rf[self.reorder]
             iW1 = self.res['iW1']
             iW2 = self.res['iW2']
@@ -1092,11 +1092,11 @@ class GaussianModel:
                                                     C[left_idx], 
                                                     C[right_idx])
             
-            print(f"    RAHT 变换完成，C 形状: {C.shape}")
+            # print(f"    RAHT 变换完成，C 形状: {C.shape}")
 
             cf = C[0].cpu().numpy()
 
-            print(f"\n  执行分块量化...")
+            # print(f"\n  执行分块量化...")
             if per_channel_quant:
                 qci = []
                 dqci = []
@@ -1142,9 +1142,9 @@ class GaussianModel:
                 qci = [] 
                 split = split_length(lc1, self.n_block)
                 
-                print(f"    分块量化模式")
-                print(f"    块数量: {self.n_block}")
-                print(f"    量化 55 维 RAHT 特征 (包含 scale)...")
+                # print(f"    分块量化模式")
+                # print(f"    块数量: {self.n_block}")
+                # print(f"    量化 55 维 RAHT 特征 (包含 scale)...")
                 
                 # 保存每个维度的量化位数信息
                 dim_bits = []
@@ -1159,8 +1159,8 @@ class GaussianModel:
                     trans_array.extend(trans1)
                     qa_cnt += self.n_block
                 
-                print(f"    所有特征量化完成，使用了 {qa_cnt} 个量化器 (55 × {self.n_block})")
-                print(f"    量化位数分布: {set(dim_bits)} bits")
+                # print(f"    所有特征量化完成，使用了 {qa_cnt} 个量化器 (55 × {self.n_block})")
+                # print(f"    量化位数分布: {set(dim_bits)} bits")
                 
                 # 保存量化位数配置
                 trans_array.extend(dim_bits)  # 添加55个维度的bit信息
@@ -1168,7 +1168,7 @@ class GaussianModel:
                 qci = np.concatenate(qci, axis=-1)  # 现在形状是 (N, 55)
                 
                 # 调试：打印 qci 的形状
-                print(f"    qci 形状: {qci.shape}")
+                # print(f"    qci 形状: {qci.shape}")
             else:
                 # 兼容不同量化器的属性名
                 if hasattr(self.qa, 'scale'):
@@ -1195,7 +1195,7 @@ class GaussianModel:
                 trans_array.append(i_zp.item())
                 dim_bits = [self.qa.bit] * 55  # 所有维度使用相同的位数
                 
-            print(f"\n  保存 RAHT 系数 (包含 scale)...")
+            # print(f"\n  保存 RAHT 系数 (包含 scale)...")
             
             # 选择存储方式：位打包 vs 分组存储
             if per_block_quant:
@@ -1208,9 +1208,9 @@ class GaussianModel:
                 
                 if bit_packing:
                     # 位打包存储（默认方式）
-                    print(f"    使用位打包存储:")
-                    print(f"      位宽配置: {set(dim_bits)} bits")
-                    print(f"      总位数: {sum(dim_bits)} bits/point")
+                    # print(f"    使用位打包存储:")
+                    # print(f"      位宽配置: {set(dim_bits)} bits")
+                    # print(f"      总位数: {sum(dim_bits)} bits/point")
                     
                     # 执行位打包
                     bitstream = pack_bits(qci, dim_bits)
@@ -1223,13 +1223,13 @@ class GaussianModel:
                         'bit_config': np.array(dim_bits, dtype=np.uint8)  # 位宽配置
                     }
                     
-                    print(f"      原始大小: {qci.nbytes / 1024:.2f} KB")
-                    print(f"      打包后大小: {bitstream_size:.2f} KB")
-                    print(f"      压缩比: {qci.nbytes / len(bitstream):.2f}x")
+                    # print(f"      原始大小: {qci.nbytes / 1024:.2f} KB")
+                    # print(f"      打包后大小: {bitstream_size:.2f} KB")
+                    # print(f"      压缩比: {qci.nbytes / len(bitstream):.2f}x")
                     
                 else:
                     # 分组存储（兼容模式）
-                    print(f"    按位宽分组存储 (兼容模式):")
+                    # print(f"    按位宽分组存储 (兼容模式):")
                     save_dict = {'f': cf}  # DC 系数
                     total_size_uncompressed = 0
                     
@@ -1254,37 +1254,36 @@ class GaussianModel:
                         save_dict[key] = group_data
                         save_dict[f'dims_{bit}bit'] = np.array(dims, dtype=np.uint8)
                         
-                        print(f"      {bit:2d}-bit: {len(dims):2d} 维度, {dtype.__name__:6s}, {group_size:8.2f} KB")
+                        # print(f"      {bit:2d}-bit: {len(dims):2d} 维度, {dtype.__name__:6s}, {group_size:8.2f} KB")
                     
-                    print(f"    orgb.npz: 总大小 {total_size_uncompressed:.2f} KB (未压缩)")
+                    # print(f"    orgb.npz: 总大小 {total_size_uncompressed:.2f} KB (未压缩)")
                 
                 # 保存文件
                 np.savez(os.path.join(bin_dir,'orgb.npz'), **save_dict)
-                print(f"    包含所有 55 维特征 (opacity + euler + f_dc + f_rest + scale)")
+                # print(f"    包含所有 55 维特征 (opacity + euler + f_dc + f_rest + scale)")
                 
             else:
                 # 单一位宽模式（向后兼容）
-                print(f"    使用 uint8 存储（单一位宽模式）")
+                # print(f"    使用 uint8 存储（单一位宽模式）")
                 ##np.savez_compressed(os.path.join(bin_dir,'orgb.npz'), f=cf, i=qci.astype(np.uint8))
                 np.savez(os.path.join(bin_dir,'orgb.npz'), f=cf, i=qci.astype(np.uint8))
-                print(f"    orgb.npz: 形状 {qci.shape}, 大小 {qci.nbytes / 1024:.2f} KB")
+                # print(f"    orgb.npz: 形状 {qci.shape}, 大小 {qci.nbytes / 1024:.2f} KB")
             
             # Scale is now included in RAHT features, no separate ct.npz needed
-            print(f"\n  跳过独立的 Scale 文件 (ct.npz) - Scale 已包含在 RAHT 特征中")
+            # print(f"\n  跳过独立的 Scale 文件 (ct.npz) - Scale 已包含在 RAHT 特征中")
             
             trans_array = np.array(trans_array)
-            print(f"\n  保存量化参数...")
+            # print(f"\n  保存量化参数...")
             np.savez_compressed(os.path.join(bin_dir, 't.npz'), t=trans_array)
-            print(f"    t.npz: {len(trans_array)} 个参数")
+            # print(f"    t.npz: {len(trans_array)} 个参数")
 
-            print(f"\n  打包成 ZIP 文件...")
+            # print(f"\n  打包成 ZIP 文件...")
             bin_zip_path = create_zip_file(bin_dir, exp_dir)
             zip_file_size = os.path.getsize(bin_zip_path)
 
-            print(f"\n【压缩完成】")
-            print(f"  文件大小: {zip_file_size:,} B")
-            print(f"  文件大小: {zip_file_size / 1024:.2f} KB")
-            print(f"  文件大小: {zip_file_size / 1024 / 1024:.2f} MB")
+            # print(f"\n【压缩完成】")
+            # print(f"  文件大小: {zip_file_size / 1024:.2f} KB")
+            print(f"  压缩后文件大小: {zip_file_size / 1024 / 1024:.2f} MB")
 
 
     def init_qas(self, n_block, bit_config=None, quant_type='vanilla'):
@@ -1370,22 +1369,24 @@ class GaussianModel:
         
         n_qs = len(self.qas)
         
-        print('='*70)
-        print('初始化量化器（多位数配置）')
-        print('='*70)
-        print(f'块数量: {n_block}')
-        print(f'量化方式: {quant_type.upper()}')
-        print(f'总量化器数量: {n_qs} (55维 × {n_block}块)')
-        print()
-        print('量化位数配置:')
-        print(f'  opacity (1维):      {bit_config["opacity"]}-bit')
-        print(f'  euler (3维):        {bit_config["euler"]}-bit')
-        print(f'  f_dc (3维):         {bit_config["f_dc"]}-bit')
-        print(f'  f_rest_0 (15维):    {bit_config["f_rest_0"]}-bit  [SH degree 1]')
-        print(f'  f_rest_1 (15维):    {bit_config["f_rest_1"]}-bit  [SH degree 2]')
-        print(f'  f_rest_2 (15维):    {bit_config["f_rest_2"]}-bit  [SH degree 3]')
-        print(f'  scale (3维):        {bit_config["scale"]}-bit')
-        print('='*70)
+        print(f'  量化器: {quant_type.upper()}, {n_qs}个 (55维×{n_block}块)')
+        print(f'  bit配置: opa={bit_config["opacity"]}, euler={bit_config["euler"]}, f_dc={bit_config["f_dc"]}, f_rest=[{bit_config["f_rest_0"]},{bit_config["f_rest_1"]},{bit_config["f_rest_2"]}], scale={bit_config["scale"]}')
+        # print('='*70)
+        # print('初始化量化器（多位数配置）')
+        # print('='*70)
+        # print(f'块数量: {n_block}')
+        # print(f'量化方式: {quant_type.upper()}')
+        # print(f'总量化器数量: {n_qs} (55维 × {n_block}块)')
+        # print()
+        # print('量化位数配置:')
+        # print(f'  opacity (1维):      {bit_config["opacity"]}-bit')
+        # print(f'  euler (3维):        {bit_config["euler"]}-bit')
+        # print(f'  f_dc (3维):         {bit_config["f_dc"]}-bit')
+        # print(f'  f_rest_0 (9维):    {bit_config["f_rest_0"]}-bit  [SH degree 1]')
+        # print(f'  f_rest_1 (15维):    {bit_config["f_rest_1"]}-bit  [SH degree 2]')
+        # print(f'  f_rest_2 (21维):    {bit_config["f_rest_2"]}-bit  [SH degree 3]')
+        # print(f'  scale (3维):        {bit_config["scale"]}-bit')
+        # print('='*70)
     
     def print_quantization_params(self, iteration=None):
         """

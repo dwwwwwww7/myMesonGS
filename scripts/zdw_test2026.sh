@@ -14,8 +14,6 @@ CSV_BASE="F:/3dgs_data/my_RAHT_results2026/test/csv"
 mkdir -p "$OUTPUT_BASE"
 mkdir -p "$CSV_BASE"
 
-echo "QUANT_TYPE: $QUANT_TYPE"
-
 
 process_scene () {
     local SCENE=$1

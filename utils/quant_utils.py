@@ -148,7 +148,7 @@ class LsqQuan(Quantizer):
             else:
                 self.s.data.fill_(x.detach().abs().mean().item() * 2 / (self.thd_pos ** 0.5))
         self.init_yet = True
-        print('quant_utils.py init_from:', self.s)
+        # print('quant_utils.py init_from:', self.s)   # 打印初始化后的s
     
     def forward(self, x):
         if self.per_channel:

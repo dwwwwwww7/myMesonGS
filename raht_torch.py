@@ -1148,8 +1148,8 @@ def haar3D_param(depth, w, val):
 
 def inv_haar3D_param(inV, depth):
 
-    print(f"Debug: V shape = {inV.shape}, depth = {depth}")
-    print(f"Debug: V dtype = {inV.dtype}")
+    # print(f"Debug: V shape = {inV.shape}, depth = {depth}")
+    # print(f"Debug: V dtype = {inV.dtype}")
 
     # 计算预期的数组大小
 
@@ -1157,8 +1157,8 @@ def inv_haar3D_param(inV, depth):
     NN = N
     depth *= 3
 
-    print(f"Debug: N = {N}, NN = {NN}, N_T = {N + NN}")
-    print(f"Debug: 数组大小 = {N + NN - N}")
+    # print(f"Debug: N = {N}, NN = {NN}, N_T = {N + NN}")
+    # print(f"Debug: 数组大小 = {N + NN - N}")
 
     res_tree = get_RAHT_tree(inV, depth)
     reord, pos, iVAL, iW, iM = \
